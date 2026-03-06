@@ -1,7 +1,7 @@
 ---
 tracker:
   kind: linear
-  project_slug: "symphony-0c79b11b75ea"
+  project_slug: "codex-e0f360a28d29"
   active_states:
     - Todo
     - In Progress
@@ -19,13 +19,13 @@ workspace:
   root: ~/code/symphony-workspaces
 hooks:
   after_create: |
-    git clone --depth 1 https://github.com/openai/symphony .
-    if command -v mise >/dev/null 2>&1; then
-      cd elixir && mise trust && mise exec -- mix deps.get
-    fi
-  before_remove: |
-    cd elixir && mise exec -- mix workspace.before_remove
+    git init
+    git commit --allow-empty -m "initial commit"
+    echo "# Test Workspace" > README.md
+    git add README.md
+    git commit -m "add README"
 agent:
+  backend: claude_code
   max_concurrent_agents: 10
   max_turns: 20
 codex:
@@ -34,6 +34,12 @@ codex:
   thread_sandbox: workspace-write
   turn_sandbox_policy:
     type: workspaceWrite
+claude:
+  command: claude
+  model: claude-sonnet-4-6
+  permission_mode: bypassPermissions
+  turn_timeout_ms: 3600000
+  stall_timeout_ms: 300000
 ---
 
 You are working on a Linear ticket `{{ issue.identifier }}`

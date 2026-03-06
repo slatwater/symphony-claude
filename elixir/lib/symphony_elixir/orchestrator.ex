@@ -1207,18 +1207,23 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp extract_token_usage(update) do
-    payloads = [
-      update[:usage],
-      Map.get(update, "usage"),
-      Map.get(update, :usage),
-      update[:payload],
-      Map.get(update, "payload"),
-      update
-    ]
+    # Direct check for simple usage maps (Claude Code format)
+    direct = update[:usage] || Map.get(update, "usage")
 
-    Enum.find_value(payloads, &absolute_token_usage_from_payload/1) ||
-      Enum.find_value(payloads, &turn_completed_usage_from_payload/1) ||
-      %{}
+    if is_map(direct) and integer_token_map?(direct) do
+      direct
+    else
+      payloads = [
+        direct,
+        update[:payload],
+        Map.get(update, "payload"),
+        update
+      ]
+
+      Enum.find_value(payloads, &absolute_token_usage_from_payload/1) ||
+        Enum.find_value(payloads, &turn_completed_usage_from_payload/1) ||
+        %{}
+    end
   end
 
   defp extract_rate_limits(update) do

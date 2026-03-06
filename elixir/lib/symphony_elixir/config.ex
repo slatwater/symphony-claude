@@ -28,10 +28,17 @@ defmodule SymphonyElixir.Config do
   @default_max_concurrent_agents 10
   @default_agent_max_turns 20
   @default_max_retry_backoff_ms 300_000
+  @default_agent_backend "claude_code"
   @default_codex_command "codex app-server"
   @default_codex_turn_timeout_ms 3_600_000
   @default_codex_read_timeout_ms 5_000
   @default_codex_stall_timeout_ms 300_000
+  @default_claude_command "claude"
+  @default_claude_model "claude-sonnet-4-6"
+  @default_claude_permission_mode "bypassPermissions"
+  @default_claude_max_turns 20
+  @default_claude_turn_timeout_ms 3_600_000
+  @default_claude_stall_timeout_ms 300_000
   @default_codex_approval_policy %{
     "reject" => %{
       "sandbox_approval" => true,
@@ -82,6 +89,10 @@ defmodule SymphonyElixir.Config do
                                type: :map,
                                default: %{},
                                keys: [
+                                 backend: [
+                                   type: :string,
+                                   default: @default_agent_backend
+                                 ],
                                  max_concurrent_agents: [
                                    type: :integer,
                                    default: @default_max_concurrent_agents
@@ -116,6 +127,38 @@ defmodule SymphonyElixir.Config do
                                  stall_timeout_ms: [
                                    type: :integer,
                                    default: @default_codex_stall_timeout_ms
+                                 ]
+                               ]
+                             ],
+                             claude: [
+                               type: :map,
+                               default: %{},
+                               keys: [
+                                 command: [type: :string, default: @default_claude_command],
+                                 model: [type: :string, default: @default_claude_model],
+                                 permission_mode: [
+                                   type: :string,
+                                   default: @default_claude_permission_mode
+                                 ],
+                                 allowed_tools: [
+                                   type: {:or, [{:list, :string}, nil]},
+                                   default: nil
+                                 ],
+                                 max_turns: [
+                                   type: :pos_integer,
+                                   default: @default_claude_max_turns
+                                 ],
+                                 turn_timeout_ms: [
+                                   type: :integer,
+                                   default: @default_claude_turn_timeout_ms
+                                 ],
+                                 stall_timeout_ms: [
+                                   type: :integer,
+                                   default: @default_claude_stall_timeout_ms
+                                 ],
+                                 append_system_prompt: [
+                                   type: {:or, [:string, nil]},
+                                   default: nil
                                  ]
                                ]
                              ],
@@ -319,6 +362,57 @@ defmodule SymphonyElixir.Config do
     |> max(0)
   end
 
+  # --- Agent backend ---
+
+  @spec agent_backend() :: String.t()
+  def agent_backend do
+    get_in(validated_workflow_options(), [:agent, :backend])
+  end
+
+  # --- Claude Code accessors ---
+
+  @spec claude_command() :: String.t()
+  def claude_command do
+    get_in(validated_workflow_options(), [:claude, :command])
+  end
+
+  @spec claude_model() :: String.t()
+  def claude_model do
+    get_in(validated_workflow_options(), [:claude, :model])
+  end
+
+  @spec claude_permission_mode() :: String.t()
+  def claude_permission_mode do
+    get_in(validated_workflow_options(), [:claude, :permission_mode])
+  end
+
+  @spec claude_allowed_tools() :: [String.t()] | nil
+  def claude_allowed_tools do
+    get_in(validated_workflow_options(), [:claude, :allowed_tools])
+  end
+
+  @spec claude_max_turns() :: pos_integer()
+  def claude_max_turns do
+    get_in(validated_workflow_options(), [:claude, :max_turns])
+  end
+
+  @spec claude_turn_timeout_ms() :: pos_integer()
+  def claude_turn_timeout_ms do
+    get_in(validated_workflow_options(), [:claude, :turn_timeout_ms])
+  end
+
+  @spec claude_stall_timeout_ms() :: non_neg_integer()
+  def claude_stall_timeout_ms do
+    validated_workflow_options()
+    |> get_in([:claude, :stall_timeout_ms])
+    |> max(0)
+  end
+
+  @spec claude_append_system_prompt() :: String.t() | nil
+  def claude_append_system_prompt do
+    get_in(validated_workflow_options(), [:claude, :append_system_prompt])
+  end
+
   @spec workflow_prompt() :: String.t()
   def workflow_prompt do
     case current_workflow() do
@@ -366,9 +460,8 @@ defmodule SymphonyElixir.Config do
     with {:ok, _workflow} <- current_workflow(),
          :ok <- require_tracker_kind(),
          :ok <- require_linear_token(),
-         :ok <- require_linear_project(),
-         :ok <- require_valid_codex_runtime_settings() do
-      require_codex_command()
+         :ok <- require_linear_project() do
+      validate_agent_backend()
     end
   end
 
@@ -438,6 +531,29 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  defp validate_agent_backend do
+    case agent_backend() do
+      "codex" ->
+        with :ok <- require_valid_codex_runtime_settings() do
+          require_codex_command()
+        end
+
+      "claude_code" ->
+        require_claude_command()
+
+      other ->
+        {:error, {:unsupported_agent_backend, other}}
+    end
+  end
+
+  defp require_claude_command do
+    if byte_size(String.trim(claude_command())) > 0 do
+      :ok
+    else
+      {:error, :missing_claude_command}
+    end
+  end
+
   defp validated_workflow_options do
     workflow_config()
     |> extract_workflow_options()
@@ -451,6 +567,7 @@ defmodule SymphonyElixir.Config do
       workspace: extract_workspace_options(section_map(config, "workspace")),
       agent: extract_agent_options(section_map(config, "agent")),
       codex: extract_codex_options(section_map(config, "codex")),
+      claude: extract_claude_options(section_map(config, "claude")),
       hooks: extract_hooks_options(section_map(config, "hooks")),
       observability: extract_observability_options(section_map(config, "observability")),
       server: extract_server_options(section_map(config, "server"))
@@ -479,6 +596,7 @@ defmodule SymphonyElixir.Config do
 
   defp extract_agent_options(section) do
     %{}
+    |> put_if_present(:backend, scalar_string_value(Map.get(section, "backend")))
     |> put_if_present(:max_concurrent_agents, integer_value(Map.get(section, "max_concurrent_agents")))
     |> put_if_present(:max_turns, positive_integer_value(Map.get(section, "max_turns")))
     |> put_if_present(:max_retry_backoff_ms, positive_integer_value(Map.get(section, "max_retry_backoff_ms")))
@@ -494,6 +612,18 @@ defmodule SymphonyElixir.Config do
     |> put_if_present(:turn_timeout_ms, integer_value(Map.get(section, "turn_timeout_ms")))
     |> put_if_present(:read_timeout_ms, integer_value(Map.get(section, "read_timeout_ms")))
     |> put_if_present(:stall_timeout_ms, integer_value(Map.get(section, "stall_timeout_ms")))
+  end
+
+  defp extract_claude_options(section) do
+    %{}
+    |> put_if_present(:command, command_value(Map.get(section, "command")))
+    |> put_if_present(:model, scalar_string_value(Map.get(section, "model")))
+    |> put_if_present(:permission_mode, scalar_string_value(Map.get(section, "permission_mode")))
+    |> put_if_present(:allowed_tools, csv_value(Map.get(section, "allowed_tools")))
+    |> put_if_present(:max_turns, positive_integer_value(Map.get(section, "max_turns")))
+    |> put_if_present(:turn_timeout_ms, integer_value(Map.get(section, "turn_timeout_ms")))
+    |> put_if_present(:stall_timeout_ms, integer_value(Map.get(section, "stall_timeout_ms")))
+    |> put_if_present(:append_system_prompt, binary_value(Map.get(section, "append_system_prompt")))
   end
 
   defp extract_hooks_options(section) do
