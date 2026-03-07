@@ -120,24 +120,75 @@ defmodule SymphonyElixir.ClaudeCode.Client do
 
   # --- Private ---
 
+  # Accumulator for stream processing. Tracks tokens across multiple agentic turns
+  # within a single send_message call. Each turn emits message_start/delta/stop events.
+  # The Result message (if received) contains definitive totals.
+  @type stream_acc :: %{
+          session_id: String.t() | nil,
+          accumulated_input: non_neg_integer(),
+          accumulated_output: non_neg_integer(),
+          turn_input: non_neg_integer(),
+          turn_output: non_neg_integer(),
+          result_usage: map() | nil
+        }
+
+  @spec initial_acc() :: stream_acc()
+  defp initial_acc do
+    %{
+      session_id: nil,
+      accumulated_input: 0,
+      accumulated_output: 0,
+      turn_input: 0,
+      turn_output: 0,
+      result_usage: nil
+    }
+  end
+
   defp consume_stream(session_pid, prompt, on_message, metadata) do
     stream = Streaming.send_message(session_pid, prompt)
 
-    result =
-      Enum.reduce_while(stream, %{session_id: nil, usage: nil}, fn event, acc ->
+    acc =
+      Enum.reduce_while(stream, initial_acc(), fn event, acc ->
         handle_stream_event(event, acc, on_message, metadata)
       end)
 
-    {:ok, result}
+    {:ok, Map.put(acc, :usage, finalize_usage(acc))}
   rescue
     error ->
       {:error, {:stream_error, Exception.message(error)}}
   end
 
+  # Build final usage map: prefer Result message totals, fallback to accumulated values
+  defp finalize_usage(%{result_usage: result} = acc) when is_map(result) do
+    input = extract_token(result, "input_tokens")
+    output = extract_token(result, "output_tokens")
+
+    # Use result totals if they're non-trivial, otherwise use accumulated
+    final_input = if input > 0, do: input, else: acc.accumulated_input
+    final_output = if output > 0, do: output, else: acc.accumulated_output
+
+    %{
+      "input_tokens" => final_input,
+      "output_tokens" => final_output,
+      "total_tokens" => final_input + final_output
+    }
+  end
+
+  defp finalize_usage(acc) do
+    %{
+      "input_tokens" => acc.accumulated_input,
+      "output_tokens" => acc.accumulated_output,
+      "total_tokens" => acc.accumulated_input + acc.accumulated_output
+    }
+  end
+
   defp handle_stream_event(%{type: :message_start} = event, acc, on_message, metadata) do
     session_id = event[:session_id] || acc.session_id
-    usage = event[:usage]
-    new_acc = %{acc | session_id: session_id} |> maybe_update_usage(usage)
+    usage = extract_event_usage(event)
+    input = extract_token(usage, "input_tokens")
+
+    # Start a new turn: capture this turn's input tokens
+    new_acc = %{acc | session_id: session_id, turn_input: input, turn_output: 0}
 
     emit_event(on_message, :notification, %{payload: event, raw: inspect(event)}, metadata)
     {:cont, new_acc}
@@ -148,8 +199,12 @@ defmodule SymphonyElixir.ClaudeCode.Client do
   end
 
   defp handle_stream_event(%{type: :message_stop} = event, acc, on_message, metadata) do
-    usage = event[:usage] || get_in(event, [:raw_event, "usage"])
-    new_acc = maybe_update_usage(acc, usage)
+    # Turn complete: accumulate this turn's tokens into running totals
+    new_acc = %{
+      acc
+      | accumulated_input: acc.accumulated_input + acc.turn_input,
+        accumulated_output: acc.accumulated_output + acc.turn_output
+    }
 
     emit_event(
       on_message,
@@ -160,7 +215,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
         raw: inspect(event),
         details: event
       },
-      Map.merge(metadata, usage_metadata(new_acc))
+      Map.merge(metadata, %{usage: current_usage(new_acc)})
     )
 
     # Don't halt here - continue consuming to capture the result message
@@ -169,15 +224,17 @@ defmodule SymphonyElixir.ClaudeCode.Client do
   end
 
   defp handle_stream_event(%{type: :message_delta} = event, acc, on_message, metadata) do
-    # SDK EventParser doesn't extract usage from message_delta; fall back to raw_event
-    usage = event[:usage] || get_in(event, [:raw_event, "usage"])
-    new_acc = maybe_update_usage(acc, usage)
+    usage = extract_event_usage(event)
+    output = extract_token(usage, "output_tokens")
+
+    # Update this turn's output tokens (message_delta carries cumulative output for the turn)
+    new_acc = if output > acc.turn_output, do: %{acc | turn_output: output}, else: acc
 
     emit_event(
       on_message,
       :notification,
       %{payload: event, raw: inspect(event)},
-      Map.merge(metadata, usage_metadata(new_acc))
+      Map.merge(metadata, %{usage: current_usage(new_acc)})
     )
 
     {:cont, new_acc}
@@ -202,20 +259,25 @@ defmodule SymphonyElixir.ClaudeCode.Client do
       metadata
     )
 
-    {:halt, %{acc | usage: acc.usage || %{}}}
+    {:halt, acc}
   end
 
   # Control client path delivers result Messages as %{type: :message, message: msg}
   defp handle_stream_event(%{type: :message, message: message}, acc, on_message, metadata) do
     usage = extract_result_usage(message)
-    new_acc = maybe_update_usage(acc, usage)
+
+    new_acc = if usage, do: %{acc | result_usage: usage}, else: acc
 
     if usage do
+      Logger.info(
+        "Claude Code result message received: input=#{extract_token(usage, "input_tokens")} output=#{extract_token(usage, "output_tokens")}"
+      )
+
       emit_event(
         on_message,
         :turn_completed,
         %{method: :turn_completed, raw: inspect(message)},
-        Map.merge(metadata, usage_metadata(new_acc))
+        Map.merge(metadata, %{usage: finalize_usage(new_acc)})
       )
     end
 
@@ -226,22 +288,25 @@ defmodule SymphonyElixir.ClaudeCode.Client do
     {:cont, acc}
   end
 
-  defp maybe_update_usage(acc, nil), do: acc
-
-  defp maybe_update_usage(acc, usage) when is_map(usage) do
-    merged = Map.merge(acc.usage || %{}, usage)
-    %{acc | usage: merged}
+  # Extract usage from any event, checking both parsed fields and raw_event
+  defp extract_event_usage(event) do
+    event[:usage] ||
+      get_in(event, [:raw_event, "usage"]) ||
+      get_in(event, [:raw_event, "message", "usage"]) ||
+      %{}
   end
 
-  defp usage_metadata(%{usage: usage}) when is_map(usage) do
-    %{usage: normalize_usage(usage)}
+  # Extract a specific token count from a usage map (handles both string and atom keys)
+  defp extract_token(usage, key) when is_map(usage) do
+    usage[key] || usage[String.to_atom(key)] || 0
   end
 
-  defp usage_metadata(_), do: %{}
+  defp extract_token(_, _), do: 0
 
-  defp normalize_usage(usage) when is_map(usage) do
-    input = usage["input_tokens"] || usage[:input_tokens] || 0
-    output = usage["output_tokens"] || usage[:output_tokens] || 0
+  # Build current usage snapshot for event emission (accumulated + current turn)
+  defp current_usage(acc) do
+    input = acc.accumulated_input + acc.turn_input
+    output = acc.accumulated_output + acc.turn_output
 
     %{
       "input_tokens" => input,
