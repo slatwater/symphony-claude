@@ -37,7 +37,7 @@ codex:
 claude:
   command: claude
   model: claude-sonnet-4-6
-  permission_mode: dontAsk
+  permission_mode: bypassPermissions
   max_turns: 200
   turn_timeout_ms: 3600000
   stall_timeout_ms: 300000

@@ -35,7 +35,7 @@ defmodule SymphonyElixir.Config do
   @default_codex_stall_timeout_ms 300_000
   @default_claude_command "claude"
   @default_claude_model "claude-sonnet-4-6"
-  @default_claude_permission_mode "dontAsk"
+  @default_claude_permission_mode "bypassPermissions"
   @default_claude_max_turns 20
   @default_claude_turn_timeout_ms 3_600_000
   @default_claude_stall_timeout_ms 300_000
