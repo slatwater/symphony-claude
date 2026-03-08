@@ -24,6 +24,7 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.Codex.DynamicTool,
           SymphonyElixir.ClaudeCode.Client,
           SymphonyElixir.ClaudeCode.McpLinear,
+          SymphonyElixir.ClaudeCode.LinearTool.LinearGraphql,
           SymphonyElixir.HttpServer,
           SymphonyElixir.StatusDashboard,
           SymphonyElixir.LogFile,
