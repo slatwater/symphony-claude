@@ -74,9 +74,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
 
     emit_event(on_message, :session_started, %{session_id: session.session_id}, metadata)
 
-    Logger.info(
-      "Claude Code session started for #{issue_context(issue)} workspace=#{workspace}"
-    )
+    Logger.info("Claude Code session started for #{issue_context(issue)} workspace=#{workspace}")
 
     task =
       Task.async(fn ->
@@ -87,9 +85,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
       {:ok, {:ok, result}} ->
         session_id = result[:session_id] || session.session_id
 
-        Logger.info(
-          "Claude Code session completed for #{issue_context(issue)} session_id=#{session_id}"
-        )
+        Logger.info("Claude Code session completed for #{issue_context(issue)} session_id=#{session_id}")
 
         {:ok,
          %{
@@ -99,9 +95,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
          }}
 
       {:ok, {:error, reason}} ->
-        Logger.warning(
-          "Claude Code session ended with error for #{issue_context(issue)}: #{inspect(reason)}"
-        )
+        Logger.warning("Claude Code session ended with error for #{issue_context(issue)}: #{inspect(reason)}")
 
         emit_event(on_message, :turn_ended_with_error, %{reason: reason}, metadata)
         {:error, reason}
@@ -325,9 +319,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
     new_acc = if usage, do: %{acc | result_usage: usage}, else: acc
 
     if usage do
-      Logger.info(
-        "Claude Code result message received: input=#{extract_token(usage, "input_tokens")} output=#{extract_token(usage, "output_tokens")}"
-      )
+      Logger.info("Claude Code result message received: input=#{extract_token(usage, "input_tokens")} output=#{extract_token(usage, "output_tokens")}")
 
       emit_event(
         on_message,
@@ -402,8 +394,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
         {:error, {:invalid_workspace_cwd, :workspace_root, workspace_path}}
 
       not String.starts_with?(workspace_path <> "/", root_prefix) ->
-        {:error,
-         {:invalid_workspace_cwd, :outside_workspace_root, workspace_path, workspace_root}}
+        {:error, {:invalid_workspace_cwd, :outside_workspace_root, workspace_path, workspace_root}}
 
       true ->
         :ok
