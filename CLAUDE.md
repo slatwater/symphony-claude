@@ -172,7 +172,7 @@ Observability — HTTP Dashboard + REST API + 日志
 - Claude Code 后端运行需设置 `CLAUDECODE=""` 环境变量（绕过嵌套检测）
 - Claude Code 使用 control_client 传输（因 `permission_mode: :bypass_permissions`）
 - **permission_mode 必须为 `bypassPermissions`**：`dontAsk` 会自动拒绝 MCP 工具和 Bash，导致 agent 死循环
-- Token 追踪：累加器模式（per-turn 累加），Result 消息优先取完整 usage
+- Token 追踪：累加器模式（per-turn 累加），Result 消息优先取完整 usage；`sum_input_tokens` 合计 `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`；`finalize_usage` 输出含 cache breakdown 字段（`input_tokens_uncached` / `cache_read_input_tokens` / `cache_creation_input_tokens`）
 - MCP Linear：优先使用 SDK in-process MCP server（`create_sdk_mcp_server`），binary 缺失时自动 fallback
-- GitHub 仓库：`slatwater/symphony-claude`（v1/v2/v3），`slatwater/symphony` 已删除
+- GitHub 仓库：`slatwater/symphony-claude`（v1/v2/v3/v3.1/v3.2），`slatwater/symphony` 已删除
 - **版本发布规则**：每次向 GitHub 推送新版本（tag）后，必须同步更新 `STATUS.md`（进度/验证结果/版本历史）和 `CLAUDE.md`（如有架构/约定变更）

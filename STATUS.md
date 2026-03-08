@@ -162,4 +162,4 @@ Claude CLI (stream-json)
 | v2 | 2026-03-07 | Token 追踪修复 + MCP SDK fallback + permission mode 调整 |
 | v3 | 2026-03-08 | 恢复 bypassPermissions，端到端验证通过（COD-7/COD-8） |
 | v3.1 | 2026-03-08 | Label 路由：`local` 标签走轻量流程（直接 Done），默认走 PR 流程；after_create hook 改为 git clone |
-| v3.2 | 2026-03-08 | 修复 input_tokens 偏低：`sum_input_tokens` 合计 cache 字段（根因）+ `maybe_drain_result` drain Result 消息 + 端到端验证通过（34→252,392） |
+| v3.2 | 2026-03-08 | 修复 input_tokens 偏低：`sum_input_tokens` 合计 cache 字段 + `maybe_drain_result` drain Result 消息 + `finalize_usage` cache breakdown 字段 + CI 修绿（format/credo/test/coverage）+ agent_runner 参数重构 + 14 个单元测试 |
