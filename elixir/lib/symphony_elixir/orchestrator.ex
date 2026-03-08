@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.{AgentRunner, Config, EventStore, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
 
   @continuation_retry_delay_ms 1_000
@@ -126,6 +126,7 @@ defmodule SymphonyElixir.Orchestrator do
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
 
+        EventStore.persist_session(issue_id, session_id)
         notify_dashboard()
         {:noreply, state}
     end
@@ -147,6 +148,7 @@ defmodule SymphonyElixir.Orchestrator do
           |> apply_codex_token_delta(token_delta)
           |> apply_codex_rate_limits(update)
 
+        record_agent_event(issue_id, running_entry, update)
         notify_dashboard()
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
@@ -339,6 +341,9 @@ defmodule SymphonyElixir.Orchestrator do
 
       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
         state = record_session_completion_totals(state, running_entry)
+
+        # Persist events before cleanup (demonitor flushes :DOWN, skipping the normal persist path)
+        EventStore.persist_session(issue_id, running_entry[:session_id])
 
         if cleanup_workspace do
           cleanup_issue_workspace(identifier)
@@ -792,6 +797,65 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp notify_dashboard do
     StatusDashboard.notify_update()
+  end
+
+  defp record_agent_event(issue_id, running_entry, update) do
+    event_type = update[:event]
+
+    # Skip noisy protocol events that add no user value
+    if event_type in [:notification] and is_nil(update[:tool_name]) do
+      :ok
+    else
+      event = %{
+        event_type: event_type,
+        session_id: running_entry[:session_id],
+        issue_identifier: running_entry[:identifier],
+        message: humanize_update(update),
+        tool_name: update[:tool_name],
+        tool_input_summary: update[:tool_input_summary],
+        text: update[:text],
+        usage: update[:usage]
+      }
+
+      EventStore.append(issue_id, event)
+      SymphonyElixirWeb.ObservabilityPubSub.broadcast_agent_event(issue_id, event)
+    end
+  end
+
+  defp humanize_update(update) do
+    cond do
+      update[:event] == :tool_use && update[:tool_name] ->
+        name = update[:tool_name]
+        summary = update[:tool_input_summary]
+        if summary && summary != "", do: "#{name}: #{summary}", else: name
+
+      update[:event] == :text_output ->
+        update[:text] || ""
+
+      update[:event] == :session_started ->
+        sid = get_in(update, [:payload, :session_id]) || update[:session_id] || "unknown"
+        "Session started (#{sid})"
+
+      update[:event] == :turn_completed ->
+        usage = update[:usage]
+
+        if is_map(usage) do
+          input = usage["input_tokens"] || usage[:input_tokens] || 0
+          output = usage["output_tokens"] || usage[:output_tokens] || 0
+          "Turn completed — in: #{input}, out: #{output}"
+        else
+          "Turn completed"
+        end
+
+      update[:event] == :turn_ended_with_error ->
+        "Error: #{inspect(update[:reason], limit: 3)}"
+
+      update[:tool_name] ->
+        "#{update[:tool_name]}"
+
+      true ->
+        to_string(update[:event] || "event")
+    end
   end
 
   defp handle_active_retry(state, issue, attempt, metadata) do

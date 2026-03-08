@@ -123,7 +123,9 @@ defmodule SymphonyElixir.ClaudeCode.Client do
           accumulated_output: non_neg_integer(),
           turn_input: non_neg_integer(),
           turn_output: non_neg_integer(),
-          result_usage: map() | nil
+          result_usage: map() | nil,
+          current_tool_name: String.t() | nil,
+          current_tool_json: String.t()
         }
 
   @spec initial_acc() :: stream_acc()
@@ -134,7 +136,9 @@ defmodule SymphonyElixir.ClaudeCode.Client do
       accumulated_output: 0,
       turn_input: 0,
       turn_output: 0,
-      result_usage: nil
+      result_usage: nil,
+      current_tool_name: nil,
+      current_tool_json: ""
     }
   end
 
@@ -241,7 +245,18 @@ defmodule SymphonyElixir.ClaudeCode.Client do
     {:cont, new_acc}
   end
 
-  defp handle_stream_event(%{type: :text_delta}, acc, _on_message, _metadata) do
+  defp handle_stream_event(%{type: :text_delta} = event, acc, on_message, metadata) do
+    text = event[:text] || ""
+
+    if String.trim(text) != "" do
+      emit_event(
+        on_message,
+        :text_output,
+        %{text: text, payload: nil, raw: nil},
+        metadata
+      )
+    end
+
     {:cont, acc}
   end
 
@@ -290,15 +305,34 @@ defmodule SymphonyElixir.ClaudeCode.Client do
     {:cont, new_acc}
   end
 
-  defp handle_stream_event(%{type: :tool_use_start} = event, acc, on_message, metadata) do
-    emit_event(
-      on_message,
-      :notification,
-      %{payload: event, raw: inspect(event), tool_name: event[:name]},
-      metadata
-    )
+  # Buffer tool name; input arrives via tool_input_delta, emitted on content_block_stop
+  defp handle_stream_event(%{type: :tool_use_start} = event, acc, _on_message, _metadata) do
+    {:cont, %{acc | current_tool_name: event[:name], current_tool_json: ""}}
+  end
 
-    {:cont, acc}
+  # Accumulate tool input JSON chunks
+  defp handle_stream_event(%{type: :tool_input_delta} = event, acc, _on_message, _metadata) do
+    chunk = event[:json] || ""
+    {:cont, %{acc | current_tool_json: acc.current_tool_json <> chunk}}
+  end
+
+  # Emit the complete tool_use event with parsed input summary
+  defp handle_stream_event(%{type: :content_block_stop}, acc, on_message, metadata) do
+    if acc.current_tool_name do
+      tool_input = parse_tool_json(acc.current_tool_json)
+      summary = summarize_tool_input(acc.current_tool_name, tool_input)
+
+      emit_event(
+        on_message,
+        :tool_use,
+        %{tool_name: acc.current_tool_name, tool_input_summary: summary, payload: nil, raw: nil},
+        metadata
+      )
+
+      {:cont, %{acc | current_tool_name: nil, current_tool_json: ""}}
+    else
+      {:cont, acc}
+    end
   end
 
   defp handle_stream_event(%{type: :error} = event, acc, on_message, metadata) do
@@ -335,6 +369,44 @@ defmodule SymphonyElixir.ClaudeCode.Client do
   defp handle_stream_event(_event, acc, _on_message, _metadata) do
     {:cont, acc}
   end
+
+  # --- Tool input helpers ---
+
+  defp parse_tool_json(""), do: nil
+
+  defp parse_tool_json(json) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, map} when is_map(map) -> map
+      _ -> nil
+    end
+  end
+
+  defp parse_tool_json(_), do: nil
+
+  defp summarize_tool_input(name, input) when is_map(input) do
+    case name do
+      "Read" -> input["file_path"] || ""
+      "Write" -> input["file_path"] || ""
+      "Edit" -> input["file_path"] || ""
+      "Bash" -> truncate(input["command"] || "", 120)
+      "Grep" -> "pattern=#{truncate(input["pattern"] || "", 40)} #{input["path"] || ""}"
+      "Glob" -> "#{input["pattern"] || ""} in #{input["path"] || ""}"
+      "Agent" -> truncate(input["prompt"] || "", 80)
+      n when is_binary(n) and n != "" ->
+        vals = input |> Map.values() |> Enum.filter(&is_binary/1) |> Enum.take(1)
+        truncate(Enum.join(vals, " "), 100)
+      _ -> ""
+    end
+  end
+
+  defp summarize_tool_input(_name, _input), do: ""
+
+  defp truncate(s, max) when is_binary(s) and byte_size(s) > max do
+    String.slice(s, 0, max) <> "..."
+  end
+
+  defp truncate(s, _max) when is_binary(s), do: s
+  defp truncate(_, _), do: ""
 
   # Extract usage from any event, checking both parsed fields and raw_event
   defp extract_event_usage(event) do

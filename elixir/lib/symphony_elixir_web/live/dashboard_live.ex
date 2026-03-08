@@ -64,6 +64,9 @@ defmodule SymphonyElixirWeb.DashboardLive do
               <span class="status-badge-dot"></span>
               Offline
             </span>
+            <a href="/history" class="subtle-button" style="margin-top: 0.5rem;">
+              Session History
+            </a>
           </div>
         </div>
       </header>
@@ -153,7 +156,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
-                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                        <a class="issue-link" href={"/agent/#{entry.issue_identifier}"}>Live Log</a>
+                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON</a>
                       </div>
                     </td>
                     <td>
@@ -232,7 +236,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
-                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                        <a class="issue-link" href={"/agent/#{entry.issue_identifier}"}>Live Log</a>
+                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON</a>
                       </div>
                     </td>
                     <td><%= entry.attempt %></td>

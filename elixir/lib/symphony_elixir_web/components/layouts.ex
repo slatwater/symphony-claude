@@ -28,8 +28,29 @@ defmodule SymphonyElixirWeb.Layouts do
 
             if (!window.Phoenix || !window.LiveView) return;
 
+            var Hooks = {};
+            Hooks.AutoScroll = {
+              mounted() {
+                this._scrollToBottom();
+                this._observer = new MutationObserver(function () {
+                  this._scrollToBottom();
+                }.bind(this));
+                this._observer.observe(this.el, { childList: true, subtree: true });
+              },
+              updated() {
+                this._scrollToBottom();
+              },
+              destroyed() {
+                if (this._observer) this._observer.disconnect();
+              },
+              _scrollToBottom() {
+                this.el.scrollTop = this.el.scrollHeight;
+              }
+            };
+
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
-              params: {_csrf_token: csrfToken}
+              params: {_csrf_token: csrfToken},
+              hooks: Hooks
             });
 
             liveSocket.connect();

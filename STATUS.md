@@ -2,7 +2,7 @@
 
 > 目标：将 Symphony Elixir 实现的底层编码 Agent 从 Codex app-server 替换为 Claude Code subprocess
 >
-> 上次更新：2026-03-08
+> 上次更新：2026-03-09
 
 ## 总体进度
 
@@ -15,9 +15,10 @@ Phase 5: Linear MCP 工具    [▓▓▓▓▓▓▓▓▓▓] 100% — McpLinea
 Phase 6: WORKFLOW.md 更新   [▓▓▓▓▓▓▓▓▓▓] 100% — claude: 段 + after_create hook
 Phase 7: Dry-run 端到端验证 [▓▓▓▓▓▓▓▓▓▓] 100% — COD-7/COD-8 端到端通过
 Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译通过，mix test 因 lazy_html NIF 受阻
+Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — EventStore + Agent 事件流 + 历史回放
 ```
 
-**当前状态：生产可用 — Agent 自主完成 Linear 任务（Todo → In Review），单任务 ~1-7 分钟**
+**当前状态：生产可用 — Agent 自主完成 Linear 任务（Todo → In Review），单任务 ~1-7 分钟，实时事件流可观测**
 
 ## 端到端验证结果（2026-03-08）
 
@@ -37,18 +38,37 @@ Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译
 | 产出 | CONTRIBUTING.md (70 行，含 4 个必要章节) |
 | 最终状态 | Todo → In Progress → **In Review** |
 
+### COD-19: Add hello.txt with greeting message
+| 指标 | 结果 |
+|---|---|
+| 耗时 | ~2 分钟 |
+| 产出 | hello.txt + PR #8 |
+| 最终状态 | Todo → In Progress → **In Review** |
+| 事件流验证 | 43 事件，工具调用显示实际命令，文本输出正确聚合 |
+
+### COD-20: Add README.md with project description
+| 指标 | 结果 |
+|---|---|
+| 耗时 | ~2 分钟 |
+| 产出 | README.md 更新 + PR #9 |
+| 最终状态 | Todo → In Progress → **In Review** |
+| 事件持久化 | 128 事件 → `log/sessions/*.json` ✓ |
+
 ### 全链路验证
 | 验证项 | 结果 | 说明 |
 |---|---|---|
 | 服务启动 | Pass | `CLAUDECODE="" mix run --no-halt`，Dashboard 可访问 |
 | Linear 轮询 | Pass | 正确拉取 project `codex-e0f360a28d29` 的 active issues |
-| Issue 调度 | Pass | COD-7/COD-8 自动 dispatch 到 worker |
+| Issue 调度 | Pass | COD-7/COD-8/COD-19/COD-20 自动 dispatch 到 worker |
 | 工作区创建 | Pass | `~/code/symphony-workspaces/COD-*` + git init + hook |
 | Claude Code 会话 | Pass | control_client 路径，bypassPermissions 模式 |
 | MCP Linear | Pass | SDK in-process MCP (无需外部 binary) |
 | Agent 执行 | Pass | 代码修改 + git commit + PR 检查 + Linear workpad 更新 |
 | Token 追踪 | Pass | 累加器模式，output_tokens 准确，Result 消息优先 |
 | Web Dashboard | Pass | http://127.0.0.1:4000/ 实时显示运行状态 |
+| Agent 事件流 | Pass | `/agent/:id` 实时工具调用 + 文本输出 + token 统计 |
+| 历史回放 | Pass | `/history` 浏览已完成会话 + 定时回放 |
+| 事件持久化 | Pass | agent 完成时自动保存到 `log/sessions/*.json` |
 | REST API | Pass | `/api/v1/state` 返回 token / event / session 数据 |
 
 ### 已知限制
@@ -73,6 +93,11 @@ Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译
 | `Orchestrator` 微调 | Done | `extract_token_usage/1` 新增直接 `integer_token_map?` 识别 |
 | `WORKFLOW.md` | Done | `agent.backend: claude_code` + `claude:` 配置段 + local hook |
 
+| `EventStore` | Done | ETS 事件存储 + JSON 持久化（per-issue 事件累积 → `log/sessions/`） |
+| `AgentLogLive` | Done | Per-agent 实时事件流 LiveView（工具/文本/Turn/错误 过滤） |
+| `HistoryLive` | Done | 历史会话浏览 + 定时回放 LiveView |
+| `ObservabilityPubSub` | Done | 新增 per-agent 和全局 agent 事件 PubSub topic |
+
 ### 待完成
 
 | 模块 | 文件 | 说明 |
@@ -91,18 +116,27 @@ Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译
 | `prompt_builder.ex` | 模板渲染逻辑不变 |
 | `workspace.ex` | 工作区管理不变 |
 | `linear/` 全部 | Linear API 客户端不变 |
-| Web 层全部 | Dashboard、API、Router 不变 |
+| Web 层（v3.2） | Dashboard、API、Router 不变 |
 
 ## 改动文件清单
 
 | 文件 | 操作 | 说明 |
 |---|---|---|
 | `lib/symphony_elixir/config.ex` | 修改 | +claude.* 配置段 + agent.backend + accessor + validation |
-| `lib/symphony_elixir/claude_code/client.ex` | **新建** | Claude Code subprocess 客户端（~320 行） |
-| `lib/symphony_elixir/claude_code/mcp_linear.ex` | **新建** | Linear MCP server 配置生成 + 存在性检查（~50 行） |
-| `lib/symphony_elixir/agent_runner.ex` | 修改 | 动态后端分派（~15 行改动） |
-| `lib/symphony_elixir/orchestrator.ex` | 修改 | `extract_token_usage` 新增直接 usage 识别（~10 行改动） |
+| `lib/symphony_elixir/claude_code/client.ex` | **新建** | Claude Code subprocess 客户端 |
+| `lib/symphony_elixir/claude_code/mcp_linear.ex` | **新建** | Linear MCP server 配置生成 + 存在性检查 |
+| `lib/symphony_elixir/agent_runner.ex` | 修改 | 动态后端分派 |
+| `lib/symphony_elixir/orchestrator.ex` | 修改 | +extract_token_usage + record_agent_event + persist 修复 |
 | `WORKFLOW.md` | 修改 | agent.backend + claude 配置段 + after_create local hook |
+| `lib/symphony_elixir/event_store.ex` | **新建** | ETS 事件存储 + JSON 持久化 |
+| `lib/symphony_elixir_web/live/agent_log_live.ex` | **新建** | 实时 Agent 事件流 LiveView |
+| `lib/symphony_elixir_web/live/history_live.ex` | **新建** | 历史会话浏览 + 回放 LiveView |
+| `lib/symphony_elixir_web/observability_pubsub.ex` | 修改 | +per-agent 事件 PubSub topic |
+| `lib/symphony_elixir_web/router.ex` | 修改 | +`/agent/:id` + `/history` 路由 |
+| `lib/symphony_elixir_web/components/layouts.ex` | 修改 | +AutoScroll JS hook |
+| `lib/symphony_elixir_web/live/dashboard_live.ex` | 修改 | +Live Log 链接 + History 入口 |
+| `lib/symphony_elixir.ex` | 修改 | +EventStore supervision |
+| `priv/static/dashboard.css` | 修改 | +事件流 UI 样式 |
 
 ## 关键设计决策
 
@@ -163,3 +197,4 @@ Claude CLI (stream-json)
 | v3 | 2026-03-08 | 恢复 bypassPermissions，端到端验证通过（COD-7/COD-8） |
 | v3.1 | 2026-03-08 | Label 路由：`local` 标签走轻量流程（直接 Done），默认走 PR 流程；after_create hook 改为 git clone |
 | v3.2 | 2026-03-08 | 修复 input_tokens 偏低：`sum_input_tokens` 合计 cache 字段 + `maybe_drain_result` drain Result 消息 + `finalize_usage` cache breakdown 字段 + CI 修绿（format/credo/test/coverage）+ agent_runner 参数重构 + 14 个单元测试 |
+| v3.3 | 2026-03-09 | 实时可观测性：EventStore + Agent 事件流 LiveView + 历史回放 + 工具输入摘要 + 文本聚合 + 会话持久化 |
