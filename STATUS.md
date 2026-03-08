@@ -55,7 +55,7 @@ Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译
 
 | 限制 | 原因 | 影响 |
 |---|---|---|
-| `input_tokens` 偏低 | control_client 路径的 `message_start` 事件不含完整 API usage | 仅影响 input 统计，output_tokens 准确 |
+| `input_tokens` 偏低 | **已修复并验证** — 根因为 prompt caching：`sum_input_tokens` 合计 `input_tokens` + `cache_read` + `cache_creation` | 从 34 → 252,392 |
 | `lazy_html` NIF 下载失败 | proxy/网络限制 | 影响 `mix test`，不影响运行 |
 
 ## 模块级状态
@@ -79,7 +79,7 @@ Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译
 |---|---|---|
 | Client 测试 | `test/symphony_elixir/claude_code/client_test.exs` | 仿照 `app_server_test.exs`，fake claude 脚本 + stream events |
 | Config 测试 | `test/symphony_elixir/workspace_and_config_test.exs` | 新增 `claude.*` 和 `agent.backend` 测试 |
-| input_tokens 精度 | `client.ex` | control_client 路径下 input_tokens 偏低，需进一步调查 SDK 事件 |
+| input_tokens 精度 | `client.ex` | **已修复已验证** — `sum_input_tokens` 合计 3 个字段 + `maybe_drain_result` drain Result 消息 |
 
 ### 不改动（保留原样）
 
@@ -162,3 +162,4 @@ Claude CLI (stream-json)
 | v2 | 2026-03-07 | Token 追踪修复 + MCP SDK fallback + permission mode 调整 |
 | v3 | 2026-03-08 | 恢复 bypassPermissions，端到端验证通过（COD-7/COD-8） |
 | v3.1 | 2026-03-08 | Label 路由：`local` 标签走轻量流程（直接 Done），默认走 PR 流程；after_create hook 改为 git clone |
+| v3.2 | 2026-03-08 | 修复 input_tokens 偏低：`sum_input_tokens` 合计 cache 字段（根因）+ `maybe_drain_result` drain Result 消息 + 端到端验证通过（34→252,392） |

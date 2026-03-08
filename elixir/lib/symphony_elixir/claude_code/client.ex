@@ -152,25 +152,78 @@ defmodule SymphonyElixir.ClaudeCode.Client do
         handle_stream_event(event, acc, on_message, metadata)
       end)
 
+    # The control_client stream halts after the final message_stop, but the
+    # Result message (with definitive usage totals) arrives as {:claude_message, ...}
+    # shortly after. Drain it from the process mailbox before finalizing usage.
+    acc = maybe_drain_result(session_pid, acc, on_message, metadata)
+
     {:ok, Map.put(acc, :usage, finalize_usage(acc))}
   rescue
     error ->
       {:error, {:stream_error, Exception.message(error)}}
   end
 
-  # Build final usage map: prefer Result message totals, fallback to accumulated values
+  # For control_client path: drain the pending Result message from the process
+  # mailbox. The SDK's stream halts on message_stop before the Result message
+  # (which carries definitive usage totals) can be delivered through the stream.
+  defp maybe_drain_result({:control_client, _}, acc, on_message, metadata) do
+    receive do
+      {:claude_message, message} ->
+        usage = extract_result_usage(message)
+
+        if usage do
+          new_acc = %{acc | result_usage: usage}
+
+          Logger.info(
+            "Claude Code result (post-stream drain): " <>
+              "input=#{sum_input_tokens(usage)} " <>
+              "(uncached=#{extract_token(usage, "input_tokens")} " <>
+              "cache_read=#{extract_token(usage, "cache_read_input_tokens")} " <>
+              "cache_create=#{extract_token(usage, "cache_creation_input_tokens")}) " <>
+              "output=#{extract_token(usage, "output_tokens")}"
+          )
+
+          emit_event(
+            on_message,
+            :turn_completed,
+            %{method: :turn_completed, raw: inspect(message)},
+            Map.merge(metadata, %{usage: finalize_usage(new_acc)})
+          )
+
+          new_acc
+        else
+          acc
+        end
+    after
+      # Brief wait for the Result message to arrive after stream termination.
+      # In practice it arrives within milliseconds; 500ms is a safe upper bound.
+      500 -> acc
+    end
+  end
+
+  defp maybe_drain_result(_session_pid, acc, _on_message, _metadata), do: acc
+
+  # Build final usage map: prefer Result message totals, fallback to accumulated values.
+  # Includes cache breakdown fields when available from Result message.
   defp finalize_usage(%{result_usage: result} = acc) when is_map(result) do
-    input = extract_token(result, "input_tokens")
+    input = sum_input_tokens(result)
     output = extract_token(result, "output_tokens")
 
     # Use result totals if they're non-trivial, otherwise use accumulated
     final_input = if input > 0, do: input, else: acc.accumulated_input
     final_output = if output > 0, do: output, else: acc.accumulated_output
 
+    uncached = extract_token(result, "input_tokens")
+    cache_read = extract_token(result, "cache_read_input_tokens")
+    cache_create = extract_token(result, "cache_creation_input_tokens")
+
     %{
       "input_tokens" => final_input,
       "output_tokens" => final_output,
-      "total_tokens" => final_input + final_output
+      "total_tokens" => final_input + final_output,
+      "input_tokens_uncached" => uncached,
+      "cache_read_input_tokens" => cache_read,
+      "cache_creation_input_tokens" => cache_create
     }
   end
 
@@ -185,7 +238,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
   defp handle_stream_event(%{type: :message_start} = event, acc, on_message, metadata) do
     session_id = event[:session_id] || acc.session_id
     usage = extract_event_usage(event)
-    input = extract_token(usage, "input_tokens")
+    input = sum_input_tokens(usage)
 
     # Start a new turn: capture this turn's input tokens
     new_acc = %{acc | session_id: session_id, turn_input: input, turn_output: 0}
@@ -226,9 +279,12 @@ defmodule SymphonyElixir.ClaudeCode.Client do
   defp handle_stream_event(%{type: :message_delta} = event, acc, on_message, metadata) do
     usage = extract_event_usage(event)
     output = extract_token(usage, "output_tokens")
+    input = sum_input_tokens(usage)
 
-    # Update this turn's output tokens (message_delta carries cumulative output for the turn)
-    new_acc = if output > acc.turn_output, do: %{acc | turn_output: output}, else: acc
+    # Update this turn's tokens (message_delta carries cumulative values for the turn)
+    new_acc = acc
+    new_acc = if output > new_acc.turn_output, do: %{new_acc | turn_output: output}, else: new_acc
+    new_acc = if input > new_acc.turn_input, do: %{new_acc | turn_input: input}, else: new_acc
 
     emit_event(
       on_message,
@@ -302,6 +358,17 @@ defmodule SymphonyElixir.ClaudeCode.Client do
   end
 
   defp extract_token(_, _), do: 0
+
+  # Sum all input-related token fields from usage map.
+  # With prompt caching, input_tokens only counts uncached tokens.
+  # cache_read_input_tokens and cache_creation_input_tokens are separate.
+  defp sum_input_tokens(usage) when is_map(usage) do
+    extract_token(usage, "input_tokens") +
+      extract_token(usage, "cache_read_input_tokens") +
+      extract_token(usage, "cache_creation_input_tokens")
+  end
+
+  defp sum_input_tokens(_), do: 0
 
   # Build current usage snapshot for event emission (accumulated + current turn)
   defp current_usage(acc) do
