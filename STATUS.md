@@ -2,34 +2,52 @@
 
 > 目标：将 Symphony Elixir 实现的底层编码 Agent 从 Codex app-server 替换为 Claude Code subprocess
 >
-> 上次更新：2026-03-06
+> 上次更新：2026-03-08
 
 ## 总体进度
 
 ```
 Phase 1: 依赖与配置基础    [▓▓▓▓▓▓▓▓▓▓] 100% — 依赖已加，Config 已扩展
-Phase 2: ClaudeCode.Client  [▓▓▓▓▓▓▓▓▓▓] 100% — 核心模块 + Token 追踪修复
+Phase 2: ClaudeCode.Client  [▓▓▓▓▓▓▓▓▓▓] 100% — 核心模块 + Token 追踪修复（累加器模式）
 Phase 3: AgentRunner 适配   [▓▓▓▓▓▓▓▓▓▓] 100% — 动态后端分派已完成
 Phase 4: Orchestrator 微调  [▓▓▓▓▓▓▓▓▓▓] 100% — extract_token_usage 已兼容
-Phase 5: Linear MCP 工具    [▓▓▓▓▓▓▓▓▓▓] 100% — McpLinear 配置生成 + 缺失检测
+Phase 5: Linear MCP 工具    [▓▓▓▓▓▓▓▓▓▓] 100% — McpLinear + SDK in-process MCP fallback
 Phase 6: WORKFLOW.md 更新   [▓▓▓▓▓▓▓▓▓▓] 100% — claude: 段 + after_create hook
-Phase 7: Dry-run 端到端验证 [▓▓▓▓▓▓▓▓░░]  80% — 已通过：轮询→调度→Agent运行→Token追踪
+Phase 7: Dry-run 端到端验证 [▓▓▓▓▓▓▓▓▓▓] 100% — COD-7/COD-8 端到端通过
 Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译通过，mix test 因 lazy_html NIF 受阻
 ```
 
-**当前状态：端到端 dry-run 通过，Agent 可成功执行 Linear 任务并报告 token usage**
+**当前状态：生产可用 — Agent 自主完成 Linear 任务（Todo → In Review），单任务 ~1-7 分钟**
 
-## Dry-run 验证结果（2026-03-06）
+## 端到端验证结果（2026-03-08）
 
+### COD-7: Add Claude Code integration note to README
+| 指标 | 结果 |
+|---|---|
+| 耗时 | ~68 秒（1 轮完成） |
+| Token | 3,337 total (out=3,327, in=15) |
+| 工具调用 | 11 次（Linear GraphQL + Bash + Read/Glob） |
+| 最终状态 | In Progress → **In Review** |
+
+### COD-8: Add CONTRIBUTING.md with development setup guide
+| 指标 | 结果 |
+|---|---|
+| 耗时 | ~7 分钟（1 轮完成） |
+| Token | 9,240 total (out=9,202, in=48) |
+| 产出 | CONTRIBUTING.md (70 行，含 4 个必要章节) |
+| 最终状态 | Todo → In Progress → **In Review** |
+
+### 全链路验证
 | 验证项 | 结果 | 说明 |
 |---|---|---|
-| 服务启动 | Pass | `mix run --no-halt --port 4000`，Dashboard 可访问 |
+| 服务启动 | Pass | `CLAUDECODE="" mix run --no-halt`，Dashboard 可访问 |
 | Linear 轮询 | Pass | 正确拉取 project `codex-e0f360a28d29` 的 active issues |
-| Issue 调度 | Pass | COD-7 (Todo) 被自动 dispatch 到 worker |
-| 工作区创建 | Pass | `~/code/symphony-workspaces/COD-7` + git init + hook |
-| Claude Code 会话 | Pass | Streaming session 启动成功，control_client 路径 |
-| Agent 执行 | Pass | Agent 完成代码修改、git commit、更新 Linear workpad |
-| Token 追踪 | Pass | output_tokens 持续增长，Orchestrator 正确计入 |
+| Issue 调度 | Pass | COD-7/COD-8 自动 dispatch 到 worker |
+| 工作区创建 | Pass | `~/code/symphony-workspaces/COD-*` + git init + hook |
+| Claude Code 会话 | Pass | control_client 路径，bypassPermissions 模式 |
+| MCP Linear | Pass | SDK in-process MCP (无需外部 binary) |
+| Agent 执行 | Pass | 代码修改 + git commit + PR 检查 + Linear workpad 更新 |
+| Token 追踪 | Pass | 累加器模式，output_tokens 准确，Result 消息优先 |
 | Web Dashboard | Pass | http://127.0.0.1:4000/ 实时显示运行状态 |
 | REST API | Pass | `/api/v1/state` 返回 token / event / session 数据 |
 
@@ -38,8 +56,7 @@ Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译
 | 限制 | 原因 | 影响 |
 |---|---|---|
 | `input_tokens` 偏低 | control_client 路径的 `message_start` 事件不含完整 API usage | 仅影响 input 统计，output_tokens 准确 |
-| 无 GitHub 推送 | 测试工作区用 `git init`（无 remote） | Agent 无法 push/PR，会报 blocker |
-| 无 Linear MCP 工具 | `priv/mcp/linear_mcp_server` 二进制不存在 | Agent 无法直接调用 Linear API（使用 CLI fallback） |
+| `lazy_html` NIF 下载失败 | proxy/网络限制 | 影响 `mix test`，不影响运行 |
 
 ## 模块级状态
 
@@ -62,8 +79,7 @@ Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译
 |---|---|---|
 | Client 测试 | `test/symphony_elixir/claude_code/client_test.exs` | 仿照 `app_server_test.exs`，fake claude 脚本 + stream events |
 | Config 测试 | `test/symphony_elixir/workspace_and_config_test.exs` | 新增 `claude.*` 和 `agent.backend` 测试 |
-| Linear MCP 二进制 | `priv/mcp/linear_mcp_server` | 需提供或构建 Linear MCP server 可执行文件 |
-| input_tokens 精度 | `client.ex` | 从 `result` Message 获取完整 usage（已有 handler，待验证） |
+| input_tokens 精度 | `client.ex` | control_client 路径下 input_tokens 偏低，需进一步调查 SDK 事件 |
 
 ### 不改动（保留原样）
 
@@ -96,8 +112,9 @@ Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译
 4. **使用 `claude_agent_sdk`**：hex.pm v0.15+ Streaming API 作为传输层
 5. **SDK 选择**：使用 Streaming API（而非 batch query API）以支持多轮对话
 6. **Control Client 路径**：`permission_mode: :bypass_permissions` 触发 control_client 传输
-7. **Token 多源提取**：message_start.usage + message_delta.raw_event.usage + result Message.data.usage
-8. **MCP 优雅降级**：binary 不存在时跳过 MCP 配置，避免 CLI 启动超时
+7. **Token 累加器模式**：per-turn 累加 input/output，Result 消息优先取完整 usage
+8. **MCP SDK fallback**：binary 不存在时使用 `ClaudeAgentSDK.create_sdk_mcp_server` 提供 in-process Linear 工具
+9. **bypassPermissions 必须**：`dontAsk` 模式会自动拒绝 MCP/Bash 工具，导致 agent 死循环
 
 ## 协议差异备忘
 
@@ -122,12 +139,26 @@ Claude CLI (stream-json)
   └─ result Message  ─→ control_client ─→ {type: :message, message: %{data: %{usage: ...}}}
         │
         ▼
-  ClaudeCode.Client
-    ├─ maybe_update_usage (merge, not replace)
-    ├─ emit_event(:turn_completed, method: :turn_completed, usage: normalized)
+  ClaudeCode.Client (累加器模式)
+    ├─ stream_acc: accumulated_input/output + turn_input/output + result_usage
+    ├─ message_start  → 记录 turn_input
+    ├─ message_delta  → 更新 turn_output (取最大值)
+    ├─ message_stop   → accumulated += turn, 重置 turn
+    ├─ result Message → 保存 result_usage (优先级最高)
+    ├─ finalize_usage → prefer result_usage, fallback to accumulated
+    ├─ emit_event(:turn_completed, usage: normalized)
     │
     ▼
   Orchestrator.extract_token_usage
     ├─ 1. 直接检查 update[:usage] → integer_token_map? ✓ (新增)
     └─ 2. 原有 Codex 深层嵌套路径 (fallback)
 ```
+
+## 版本历史
+
+| 版本 | 日期 | 说明 |
+|---|---|---|
+| v1 | 2026-03-06 | 初始 Claude Code 集成（Phase 1-6 完成） |
+| v2 | 2026-03-07 | Token 追踪修复 + MCP SDK fallback + permission mode 调整 |
+| v3 | 2026-03-08 | 恢复 bypassPermissions，端到端验证通过（COD-7/COD-8） |
+| v3.1 | 2026-03-08 | Label 路由：`local` 标签走轻量流程（直接 Done），默认走 PR 流程；after_create hook 改为 git clone |

@@ -19,11 +19,7 @@ workspace:
   root: ~/code/symphony-workspaces
 hooks:
   after_create: |
-    git init
-    git commit --allow-empty -m "initial commit"
-    echo "# Test Workspace" > README.md
-    git add README.md
-    git commit -m "add README"
+    git clone --depth 1 https://github.com/slatwater/codex.git .
 agent:
   backend: claude_code
   max_concurrent_agents: 10
@@ -74,11 +70,46 @@ Instructions:
 2. Only stop early for a true blocker (missing required auth/permissions/secrets). If blocked, record it in the workpad and move the issue according to workflow.
 3. Final message must report completed actions and blockers only. Do not include "next steps for user".
 
-Work only in the provided repository copy. Do not touch any other path.
-
 ## Prerequisite: Linear MCP or `linear_graphql` tool is available
 
 The agent should be able to talk to Linear, either via a configured Linear MCP server or injected `linear_graphql` tool. If none are present, stop and ask the user to configure Linear.
+
+{% if issue.labels contains "local" %}
+## Workflow Mode: LOCAL (lightweight)
+
+This is a LOCAL task — no GitHub PR required. Work only in the provided workspace. Do not touch any other path.
+
+### Status flow
+
+`Todo` → `In Progress` → complete the task → `Done`
+
+### Execution steps
+
+1. Fetch the issue by ticket ID and confirm current state.
+2. If state is `Todo`, move to `In Progress`.
+3. If state is `Done`, do nothing and shut down.
+4. Find or create a single persistent `## Codex Workpad` comment for progress tracking.
+5. Write a plan with acceptance criteria in the workpad.
+6. Execute the task locally in the workspace.
+7. Update the workpad: check off completed items, add validation notes.
+8. When all acceptance criteria are met, move issue directly to `Done`.
+9. Do NOT push to GitHub. Do NOT create a PR. Do NOT move to Human Review.
+
+### Guardrails (local mode)
+
+- Use exactly one persistent workpad comment (`## Codex Workpad`) per issue.
+- Do not edit the issue body/description for planning or progress tracking.
+- Keep issue text concise, specific, and action-oriented.
+- If state is terminal (`Done`), do nothing and shut down.
+
+{% else %}
+## Workflow Mode: PR (full code review)
+
+This is a CODE task — full GitHub PR flow required.
+
+Repository: https://github.com/slatwater/codex.git (already cloned in workspace)
+
+Work only in the provided repository copy. Do not touch any other path.
 
 ## Default posture
 
@@ -295,6 +326,8 @@ Use this only when completion is blocked by missing required tools or missing au
 - If state is terminal (`Done`), do nothing and shut down.
 - Keep issue text concise, specific, and reviewer-oriented.
 - If blocked and no workpad exists yet, add one blocker comment describing blocker, impact, and next unblock action.
+
+{% endif %}
 
 ## Workpad template
 
