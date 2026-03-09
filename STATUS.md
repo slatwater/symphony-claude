@@ -117,6 +117,7 @@ Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — Even
 | `workspace.ex` | 工作区管理不变 |
 | `linear/` 全部 | Linear API 客户端不变 |
 | Web 层（v3.2） | Dashboard、API、Router 不变 |
+| Tauri 桌面客户端 | Done | Tauri v2 包装 Phoenix（系统托盘 + 等待就绪 + Cmd 缩放） |
 
 ## 改动文件清单
 
@@ -133,10 +134,11 @@ Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — Even
 | `lib/symphony_elixir_web/live/history_live.ex` | **新建** | 历史会话浏览 + 回放 LiveView |
 | `lib/symphony_elixir_web/observability_pubsub.ex` | 修改 | +per-agent 事件 PubSub topic |
 | `lib/symphony_elixir_web/router.ex` | 修改 | +`/agent/:id` + `/history` 路由 |
-| `lib/symphony_elixir_web/components/layouts.ex` | 修改 | +AutoScroll JS hook |
+| `lib/symphony_elixir_web/components/layouts.ex` | 修改 | +AutoScroll JS hook + Cmd 缩放脚本 |
 | `lib/symphony_elixir_web/live/dashboard_live.ex` | 修改 | +Live Log 链接 + History 入口 |
 | `lib/symphony_elixir.ex` | 修改 | +EventStore supervision |
 | `priv/static/dashboard.css` | 修改 | +流程图 UI 样式（卡片/箭头/状态条） |
+| `desktop/` | **新建** | Tauri v2 桌面客户端（Cargo + Rust src + icons + package.json） |
 
 ## 关键设计决策
 
@@ -199,3 +201,4 @@ Claude CLI (stream-json)
 | v3.2 | 2026-03-08 | 修复 input_tokens 偏低：`sum_input_tokens` 合计 cache 字段 + `maybe_drain_result` drain Result 消息 + `finalize_usage` cache breakdown 字段 + CI 修绿（format/credo/test/coverage）+ agent_runner 参数重构 + 14 个单元测试 |
 | v3.3 | 2026-03-09 | 实时可观测性：EventStore + Agent 事件流 LiveView + 历史回放 + 工具输入摘要 + 文本聚合 + 会话持久化 |
 | v3.4 | 2026-03-09 | Agent 流程图：AgentLogLive 重写为水平流程图（事件聚合为阶段节点 + 卡片/箭头 UI + 点击展开详情 + 持久化会话回退加载修复） |
+| v3.5 | 2026-03-09 | Tauri v2 桌面客户端（系统托盘 + 自动启停 Phoenix + Cmd 缩放）+ Session History Issue 列显示序号+标题 |

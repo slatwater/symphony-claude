@@ -58,6 +58,22 @@ defmodule SymphonyElixirWeb.Layouts do
           });
         </script>
         <link rel="stylesheet" href="/dashboard.css" />
+        <script>
+          (function() {
+            var zoom = 1.0;
+            function applyZoom(z) {
+              zoom = Math.min(2.0, Math.max(0.5, z));
+              document.body.style.zoom = zoom;
+            }
+            document.addEventListener('keydown', function(e) {
+              if (e.metaKey || e.ctrlKey) {
+                if (e.key === '=' || e.key === '+') { e.preventDefault(); applyZoom(zoom + 0.1); }
+                else if (e.key === '-') { e.preventDefault(); applyZoom(zoom - 0.1); }
+                else if (e.key === '0') { e.preventDefault(); applyZoom(1.0); }
+              }
+            });
+          })();
+        </script>
       </head>
       <body>
         {@inner_content}

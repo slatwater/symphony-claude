@@ -16,6 +16,7 @@
 | `elixir/lib/symphony_elixir/event_store.ex` | ETS 事件存储 + JSON 会话持久化 |
 | `elixir/lib/symphony_elixir_web/` | Phoenix Web 层（Dashboard + Agent 流程图 + 历史回放 + REST API） |
 | `elixir/lib/symphony_elixir_web/live/` | LiveView 页面（Dashboard + AgentLogLive + HistoryLive） |
+| `elixir/desktop/` | Tauri v2 桌面客户端（系统托盘 + 通知 + 自动启停 Phoenix） |
 | `elixir/WORKFLOW.md` | 编排配置 + 提示词模板 |
 
 ## 关键命令
@@ -32,6 +33,10 @@ make all                             # CI 全流程（format + lint + test + cov
 CLAUDECODE="" LINEAR_API_KEY="$KEY" \
   elixir -e 'Application.put_env(:symphony_elixir, :server_port_override, 4000)' \
   -S mix run --no-halt
+
+# 桌面客户端（Tauri）
+cd desktop && SYMPHONY_PROJECT_DIR=../  npx tauri build   # 编译
+SYMPHONY_PROJECT_DIR=../ src-tauri/target/release/symphony-desktop  # 运行
 ```
 
 ## 开发约定
@@ -60,10 +65,11 @@ CLAUDECODE="" LINEAR_API_KEY="$KEY" \
 
 - `EventStore`：ETS GenServer，per-issue 事件累积（max 500），完成时 JSON 持久化到 `log/sessions/`
 - Agent 流程图：`/agent/:issue_identifier` 水平流程图视图，原始事件聚合为阶段节点（卡片+箭头），点击展开详情
-- 历史回放：`/history` 浏览已完成会话，支持按真实时间间隔回放
+- 历史回放：`/history` 浏览已完成会话，Issue 列显示序号+标题（Linear API 查询），支持按真实时间间隔回放
+- 桌面客户端：Tauri v2 包装，自动启停 Phoenix，系统托盘（Show/Restart/Quit），Cmd+/-/0 缩放
 - PubSub：`agent:events:{issue_id}` per-agent 事件、`agent:events:all` 全局事件
 
 ### 版本发布
 
-- GitHub 仓库：`slatwater/symphony-claude`（v1/v2/v3/v3.1/v3.2/v3.3/v3.4）
+- GitHub 仓库：`slatwater/symphony-claude`（v1/v2/v3/v3.1/v3.2/v3.3/v3.4/v3.5）
 - 每次推送新 tag 后，必须同步更新 `STATUS.md` 和 `CLAUDE.md`（如有变更）

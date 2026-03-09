@@ -51,3 +51,8 @@ status.txt
 
 # Ignore package tarball (built via "mix hex.build").
 symphony_elixir-*.tar
+
+# Tauri desktop build artifacts.
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/node_modules/

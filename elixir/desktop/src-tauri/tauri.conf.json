@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicehash/tauri-v2/main/tooling/cli/schema.json",
+  "productName": "Symphony",
+  "version": "0.1.0",
+  "identifier": "com.symphony.desktop",
+  "build": {
+    "devUrl": "http://localhost:4000",
+    "frontendDist": "http://localhost:4000"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Symphony",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true,
+        "zoomHotkeysEnabled": true
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "tooltip": "Symphony"
+    },
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {}
+}

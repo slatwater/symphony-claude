@@ -6,6 +6,7 @@ defmodule SymphonyElixirWeb.HistoryLive do
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
   alias SymphonyElixir.EventStore
+  alias SymphonyElixir.Linear.Adapter
 
   @impl true
   def mount(params, _session, socket) do
@@ -26,9 +27,12 @@ defmodule SymphonyElixirWeb.HistoryLive do
         {[], nil}
       end
 
+    issue_map = fetch_issue_map(sessions)
+
     socket =
       socket
       |> assign(:sessions, sessions)
+      |> assign(:issue_map, issue_map)
       |> assign(:selected_file, selected_file)
       |> assign(:selected_events, selected_events)
       |> assign(:selected_meta, selected_meta)
@@ -157,7 +161,12 @@ defmodule SymphonyElixirWeb.HistoryLive do
                 </thead>
                 <tbody>
                   <tr :for={session <- @sessions}>
-                    <td><span class="issue-id"><%= session.issue_id %></span></td>
+                    <td>
+                      <div class="issue-stack">
+                        <span class="issue-id"><%= issue_identifier(@issue_map, session.issue_id) %></span>
+                        <span class="issue-link"><%= issue_title(@issue_map, session.issue_id) %></span>
+                      </div>
+                    </td>
                     <td class="mono muted"><%= short_session(session.session_id) %></td>
                     <td class="mono"><%= format_session_time(session.timestamp) %></td>
                     <td>
@@ -278,6 +287,41 @@ defmodule SymphonyElixirWeb.HistoryLive do
   end
 
   defp format_session_time(_), do: "—"
+
+  defp fetch_issue_map(sessions) do
+    issue_ids =
+      sessions
+      |> Enum.map(& &1.issue_id)
+      |> Enum.uniq()
+
+    case Adapter.fetch_issue_states_by_ids(issue_ids) do
+      {:ok, issues} ->
+        Map.new(issues, fn issue -> {issue.id, issue} end)
+
+      {:error, _} ->
+        %{}
+    end
+  end
+
+  defp issue_identifier(issue_map, issue_id) do
+    case Map.get(issue_map, issue_id) do
+      %{identifier: id} when is_binary(id) -> id
+      _ -> short_id(issue_id)
+    end
+  end
+
+  defp issue_title(issue_map, issue_id) do
+    case Map.get(issue_map, issue_id) do
+      %{title: title} when is_binary(title) -> title
+      _ -> ""
+    end
+  end
+
+  defp short_id(id) when is_binary(id) do
+    if String.length(id) > 8, do: String.slice(id, 0, 8) <> "…", else: id
+  end
+
+  defp short_id(_), do: "—"
 
   defp short_session("nosession"), do: "—"
 
