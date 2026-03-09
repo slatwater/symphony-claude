@@ -66,7 +66,7 @@ Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — Even
 | Agent 执行 | Pass | 代码修改 + git commit + PR 检查 + Linear workpad 更新 |
 | Token 追踪 | Pass | 累加器模式，output_tokens 准确，Result 消息优先 |
 | Web Dashboard | Pass | http://127.0.0.1:4000/ 实时显示运行状态 |
-| Agent 事件流 | Pass | `/agent/:id` 实时工具调用 + 文本输出 + token 统计 |
+| Agent 流程图 | Pass | `/agent/:id` 水平流程图（事件→阶段聚合 + 卡片/箭头 UI + 点击展开） |
 | 历史回放 | Pass | `/history` 浏览已完成会话 + 定时回放 |
 | 事件持久化 | Pass | agent 完成时自动保存到 `log/sessions/*.json` |
 | REST API | Pass | `/api/v1/state` 返回 token / event / session 数据 |
@@ -94,7 +94,7 @@ Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — Even
 | `WORKFLOW.md` | Done | `agent.backend: claude_code` + `claude:` 配置段 + local hook |
 
 | `EventStore` | Done | ETS 事件存储 + JSON 持久化（per-issue 事件累积 → `log/sessions/`） |
-| `AgentLogLive` | Done | Per-agent 实时事件流 LiveView（工具/文本/Turn/错误 过滤） |
+| `AgentLogLive` | Done | Per-agent 水平流程图 LiveView（事件聚合为阶段卡片 + 箭头，点击展开详情） |
 | `HistoryLive` | Done | 历史会话浏览 + 定时回放 LiveView |
 | `ObservabilityPubSub` | Done | 新增 per-agent 和全局 agent 事件 PubSub topic |
 
@@ -129,7 +129,7 @@ Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — Even
 | `lib/symphony_elixir/orchestrator.ex` | 修改 | +extract_token_usage + record_agent_event + persist 修复 |
 | `WORKFLOW.md` | 修改 | agent.backend + claude 配置段 + after_create local hook |
 | `lib/symphony_elixir/event_store.ex` | **新建** | ETS 事件存储 + JSON 持久化 |
-| `lib/symphony_elixir_web/live/agent_log_live.ex` | **新建** | 实时 Agent 事件流 LiveView |
+| `lib/symphony_elixir_web/live/agent_log_live.ex` | **新建** | Agent 水平流程图 LiveView（v3.4 重写为阶段聚合 + 卡片/箭头） |
 | `lib/symphony_elixir_web/live/history_live.ex` | **新建** | 历史会话浏览 + 回放 LiveView |
 | `lib/symphony_elixir_web/observability_pubsub.ex` | 修改 | +per-agent 事件 PubSub topic |
 | `lib/symphony_elixir_web/router.ex` | 修改 | +`/agent/:id` + `/history` 路由 |
@@ -198,3 +198,4 @@ Claude CLI (stream-json)
 | v3.1 | 2026-03-08 | Label 路由：`local` 标签走轻量流程（直接 Done），默认走 PR 流程；after_create hook 改为 git clone |
 | v3.2 | 2026-03-08 | 修复 input_tokens 偏低：`sum_input_tokens` 合计 cache 字段 + `maybe_drain_result` drain Result 消息 + `finalize_usage` cache breakdown 字段 + CI 修绿（format/credo/test/coverage）+ agent_runner 参数重构 + 14 个单元测试 |
 | v3.3 | 2026-03-09 | 实时可观测性：EventStore + Agent 事件流 LiveView + 历史回放 + 工具输入摘要 + 文本聚合 + 会话持久化 |
+| v3.4 | 2026-03-09 | Agent 流程图：AgentLogLive 重写为水平流程图（事件聚合为阶段节点 + 卡片/箭头 UI + 点击展开详情 + 持久化会话回退加载修复） |

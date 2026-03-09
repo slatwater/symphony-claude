@@ -449,7 +449,7 @@ pre,
   }
 }
 
-/* --- Agent Event Log --- */
+/* --- Agent Event Log & Pipeline Flow --- */
 
 .back-link {
   color: var(--accent);
@@ -468,53 +468,172 @@ pre,
   font-weight: 600;
 }
 
-.auto-scroll-on {
-  background: var(--accent-soft) !important;
-  border-color: rgba(16, 163, 127, 0.3) !important;
-  color: var(--accent-ink) !important;
+.status-live {
+  background: var(--accent-soft);
+  border-color: rgba(16, 163, 127, 0.18);
+  color: var(--accent-ink);
 }
 
-.filter-bar {
-  display: flex;
-  gap: 0.4rem;
-  padding: 0.75rem 0;
-  flex-wrap: wrap;
-}
-
-.filter-btn {
-  appearance: none;
-  border: 1px solid var(--line-strong);
-  background: var(--card-muted);
+.status-historical {
+  background: #f5f5f7;
+  border-color: var(--line-strong);
   color: var(--muted);
-  border-radius: 999px;
-  padding: 0.3rem 0.72rem;
+}
+
+/* --- Flow Pipeline (horizontal card + arrow) --- */
+
+.flow-pipeline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  overflow-x: auto;
+  padding: 1.5rem 0.75rem;
+  gap: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.flow-pipeline::-webkit-scrollbar {
+  height: 5px;
+}
+
+.flow-pipeline::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 3px;
+}
+
+/* --- Step card --- */
+
+.flow-step {
+  display: flex;
+  flex-direction: column;
+  min-width: 112px;
+  padding: 0.7rem 0.9rem 0.65rem;
+  border-radius: 10px;
+  background: white;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  font: inherit;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+/* Colored top accent bar */
+.flow-step::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.flow-step-completed::before {
+  background: var(--accent);
+}
+
+.flow-step-in_progress::before {
+  background: #3b82f6;
+  animation: bar-pulse 2s ease-in-out infinite;
+}
+
+.flow-step-failed::before {
+  background: var(--danger);
+}
+
+@keyframes bar-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.flow-step:hover {
+  border-color: rgba(16, 163, 127, 0.4);
+  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.1);
+  transform: translateY(-2px);
+}
+
+.flow-step-selected {
+  border-color: var(--accent) !important;
+  background: var(--accent-soft) !important;
+  box-shadow: 0 4px 16px rgba(16, 163, 127, 0.15) !important;
+  transform: translateY(-2px);
+}
+
+.flow-step-label {
   font-size: 0.82rem;
   font-weight: 600;
-  box-shadow: none;
-  transition: all 140ms ease;
-}
-
-.filter-btn:hover {
-  transform: none;
-  box-shadow: none;
-  background: white;
-  border-color: var(--muted);
   color: var(--ink);
+  white-space: nowrap;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
 
-.filter-active {
-  background: var(--accent) !important;
-  border-color: var(--accent) !important;
-  color: white !important;
+.flow-step-meta {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.3rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+  max-width: 130px;
 }
 
-.event-log {
-  max-height: 70vh;
+.flow-step-duration {
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 0.2rem;
+  opacity: 0.55;
+  line-height: 1.3;
+}
+
+/* --- Arrow connector --- */
+
+.flow-arrow {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  padding: 0 2px;
+}
+
+.flow-arrow-line {
+  flex: 1;
+  height: 2px;
+  background: var(--line-strong);
+  border-radius: 1px;
+}
+
+.flow-arrow-head {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid var(--line-strong);
+}
+
+/* --- Phase Detail (expanded) --- */
+
+.phase-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.phase-detail-title {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+}
+
+.phase-detail-log {
+  max-height: 50vh;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 14px;
   background: #fafafa;
 }
 
@@ -604,14 +723,6 @@ pre,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.event-detail {
-  font-size: 0.82rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
 }
 
 .event-tokens {

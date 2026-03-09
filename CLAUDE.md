@@ -59,11 +59,11 @@ CLAUDECODE="" LINEAR_API_KEY="$KEY" \
 ### 可观测性
 
 - `EventStore`：ETS GenServer，per-issue 事件累积（max 500），完成时 JSON 持久化到 `log/sessions/`
-- Agent 事件流：`/agent/:issue_identifier` 实时展示工具调用（含输入摘要）、Agent 文本输出、Turn/Token 统计
+- Agent 流程图：`/agent/:issue_identifier` 水平流程图视图，原始事件聚合为阶段节点（卡片+箭头），点击展开详情
 - 历史回放：`/history` 浏览已完成会话，支持按真实时间间隔回放
 - PubSub：`agent:events:{issue_id}` per-agent 事件、`agent:events:all` 全局事件
 
 ### 版本发布
 
-- GitHub 仓库：`slatwater/symphony-claude`（v1/v2/v3/v3.1/v3.2/v3.3）
+- GitHub 仓库：`slatwater/symphony-claude`（v1/v2/v3/v3.1/v3.2/v3.3/v3.4）
 - 每次推送新 tag 后，必须同步更新 `STATUS.md` 和 `CLAUDE.md`（如有变更）
