@@ -15,10 +15,10 @@ Phase 5: Linear MCP 工具    [▓▓▓▓▓▓▓▓▓▓] 100% — McpLinea
 Phase 6: WORKFLOW.md 更新   [▓▓▓▓▓▓▓▓▓▓] 100% — claude: 段 + after_create hook
 Phase 7: Dry-run 端到端验证 [▓▓▓▓▓▓▓▓▓▓] 100% — COD-7/COD-8 端到端通过
 Phase 8: 单元测试           [▓▓░░░░░░░░]  20% — 编译通过，mix test 因 lazy_html NIF 受阻
-Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — EventStore + Agent 事件流 + 历史回放
+Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — EventStore + Agent 流程图 + 历史回放
 ```
 
-**当前状态：生产可用 — Agent 自主完成 Linear 任务（Todo → In Review），单任务 ~1-7 分钟，实时事件流可观测**
+**当前状态：生产可用 — Agent 自主完成 Linear 任务（Todo → In Review），单任务 ~1-7 分钟，水平流程图可观测**
 
 ## 端到端验证结果（2026-03-08）
 
@@ -136,7 +136,7 @@ Phase 9: 实时可观测性       [▓▓▓▓▓▓▓▓▓▓] 100% — Even
 | `lib/symphony_elixir_web/components/layouts.ex` | 修改 | +AutoScroll JS hook |
 | `lib/symphony_elixir_web/live/dashboard_live.ex` | 修改 | +Live Log 链接 + History 入口 |
 | `lib/symphony_elixir.ex` | 修改 | +EventStore supervision |
-| `priv/static/dashboard.css` | 修改 | +事件流 UI 样式 |
+| `priv/static/dashboard.css` | 修改 | +流程图 UI 样式（卡片/箭头/状态条） |
 
 ## 关键设计决策
 

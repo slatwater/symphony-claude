@@ -14,7 +14,7 @@
 | `elixir/lib/symphony_elixir/codex/` | Codex 集成（原有，备用后端） |
 | `elixir/lib/symphony_elixir/linear/` | Linear API 客户端 |
 | `elixir/lib/symphony_elixir/event_store.ex` | ETS 事件存储 + JSON 会话持久化 |
-| `elixir/lib/symphony_elixir_web/` | Phoenix Web 层（Dashboard + Agent 事件流 + 历史回放 + REST API） |
+| `elixir/lib/symphony_elixir_web/` | Phoenix Web 层（Dashboard + Agent 流程图 + 历史回放 + REST API） |
 | `elixir/lib/symphony_elixir_web/live/` | LiveView 页面（Dashboard + AgentLogLive + HistoryLive） |
 | `elixir/WORKFLOW.md` | 编排配置 + 提示词模板 |
 
