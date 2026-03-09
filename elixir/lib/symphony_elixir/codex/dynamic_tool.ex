@@ -3,24 +3,28 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   Executes client-side tool calls requested by Codex app-server turns.
   """
 
-  alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.Config
 
-  @linear_graphql_tool "linear_graphql"
-  @linear_graphql_description """
-  Execute a raw GraphQL query or mutation against Linear using Symphony's configured auth.
+  @github_api_tool "github_api"
+  @github_api_description """
+  Execute a GitHub REST API request using Symphony's configured auth.
   """
-  @linear_graphql_input_schema %{
+  @github_api_input_schema %{
     "type" => "object",
     "additionalProperties" => false,
-    "required" => ["query"],
+    "required" => ["method", "path"],
     "properties" => %{
-      "query" => %{
+      "method" => %{
         "type" => "string",
-        "description" => "GraphQL query or mutation document to execute against Linear."
+        "description" => "HTTP method: GET, POST, PATCH, PUT, or DELETE."
       },
-      "variables" => %{
+      "path" => %{
+        "type" => "string",
+        "description" => "API path relative to the GitHub API base (e.g., /repos/owner/repo/issues/1)."
+      },
+      "body" => %{
         "type" => ["object", "null"],
-        "description" => "Optional GraphQL variables object.",
+        "description" => "Optional JSON request body.",
         "additionalProperties" => true
       }
     }
@@ -29,8 +33,8 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   @spec execute(String.t() | nil, term(), keyword()) :: map()
   def execute(tool, arguments, opts \\ []) do
     case tool do
-      @linear_graphql_tool ->
-        execute_linear_graphql(arguments, opts)
+      @github_api_tool ->
+        execute_github_api(arguments, opts)
 
       other ->
         failure_response(%{
@@ -46,87 +50,95 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   def tool_specs do
     [
       %{
-        "name" => @linear_graphql_tool,
-        "description" => @linear_graphql_description,
-        "inputSchema" => @linear_graphql_input_schema
+        "name" => @github_api_tool,
+        "description" => @github_api_description,
+        "inputSchema" => @github_api_input_schema
       }
     ]
   end
 
-  defp execute_linear_graphql(arguments, opts) do
-    linear_client = Keyword.get(opts, :linear_client, &Client.graphql/3)
-
-    with {:ok, query, variables} <- normalize_linear_graphql_arguments(arguments),
-         {:ok, response} <- linear_client.(query, variables, []) do
-      graphql_response(response)
+  defp execute_github_api(arguments, _opts) do
+    with {:ok, method, path, body} <- normalize_github_api_arguments(arguments),
+         {:ok, response} <- do_github_request(method, path, body) do
+      api_response(response)
     else
       {:error, reason} ->
         failure_response(tool_error_payload(reason))
     end
   end
 
-  defp normalize_linear_graphql_arguments(arguments) when is_binary(arguments) do
-    case String.trim(arguments) do
-      "" -> {:error, :missing_query}
-      query -> {:ok, query, %{}}
+  defp normalize_github_api_arguments(arguments) when is_map(arguments) do
+    method = (Map.get(arguments, "method") || Map.get(arguments, :method) || "") |> to_string() |> String.upcase()
+    path = Map.get(arguments, "path") || Map.get(arguments, :path)
+    body = Map.get(arguments, "body") || Map.get(arguments, :body)
+
+    cond do
+      method not in ["GET", "POST", "PATCH", "PUT", "DELETE"] ->
+        {:error, :invalid_method}
+
+      !is_binary(path) or String.trim(path) == "" ->
+        {:error, :missing_path}
+
+      true ->
+        {:ok, method, String.trim(path), body}
     end
   end
 
-  defp normalize_linear_graphql_arguments(arguments) when is_map(arguments) do
-    case normalize_query(arguments) do
-      {:ok, query} ->
-        case normalize_variables(arguments) do
-          {:ok, variables} ->
-            {:ok, query, variables}
+  defp normalize_github_api_arguments(_arguments), do: {:error, :invalid_arguments}
 
-          {:error, reason} ->
-            {:error, reason}
-        end
+  defp do_github_request(method, path, body) do
+    token = Config.github_api_token()
 
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+    if is_nil(token) do
+      {:error, :missing_github_api_token}
+    else
+      url = "#{Config.github_endpoint()}#{path}"
 
-  defp normalize_linear_graphql_arguments(_arguments), do: {:error, :invalid_arguments}
+      headers = [
+        {"Authorization", "Bearer #{token}"},
+        {"Accept", "application/vnd.github+json"},
+        {"X-GitHub-Api-Version", "2022-11-28"}
+      ]
 
-  defp normalize_query(arguments) do
-    case Map.get(arguments, "query") || Map.get(arguments, :query) do
-      query when is_binary(query) ->
-        case String.trim(query) do
-          "" -> {:error, :missing_query}
-          trimmed -> {:ok, trimmed}
-        end
+      opts = [headers: headers, connect_options: [timeout: 30_000]]
+      opts = if body && method in ["POST", "PATCH", "PUT"], do: Keyword.put(opts, :json, body), else: opts
 
-      _ ->
-        {:error, :missing_query}
-    end
-  end
-
-  defp normalize_variables(arguments) do
-    case Map.get(arguments, "variables") || Map.get(arguments, :variables) || %{} do
-      variables when is_map(variables) -> {:ok, variables}
-      _ -> {:error, :invalid_variables}
-    end
-  end
-
-  defp graphql_response(response) do
-    success =
-      case response do
-        %{"errors" => errors} when is_list(errors) and errors != [] -> false
-        %{errors: errors} when is_list(errors) and errors != [] -> false
-        _ -> true
+      case method do
+        "GET" -> Req.get(url, opts)
+        "POST" -> Req.post(url, opts)
+        "PATCH" -> Req.patch(url, opts)
+        "PUT" -> Req.put(url, opts)
+        "DELETE" -> Req.delete(url, opts)
       end
+    end
+  end
 
+  defp api_response({:ok, %{status: status, body: body}}) when status in 200..299 do
     %{
-      "success" => success,
+      "success" => true,
       "contentItems" => [
         %{
           "type" => "inputText",
-          "text" => encode_payload(response)
+          "text" => encode_payload(body)
         }
       ]
     }
+  end
+
+  defp api_response({:ok, %{status: status, body: body}}) do
+    %{
+      "success" => false,
+      "contentItems" => [
+        %{
+          "type" => "inputText",
+          "text" => encode_payload(%{"status" => status, "body" => body})
+        }
+      ]
+    }
+  end
+
+  defp api_response({:error, reason}) do
+    failure_response(tool_error_payload({:github_api_request, reason}))
   end
 
   defp failure_response(payload) do
@@ -147,63 +159,28 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   defp encode_payload(payload), do: inspect(payload)
 
-  defp tool_error_payload(:missing_query) do
-    %{
-      "error" => %{
-        "message" => "`linear_graphql` requires a non-empty `query` string."
-      }
-    }
+  defp tool_error_payload(:missing_path) do
+    %{"error" => %{"message" => "`github_api` requires a non-empty `path` string."}}
+  end
+
+  defp tool_error_payload(:invalid_method) do
+    %{"error" => %{"message" => "`github_api.method` must be GET, POST, PATCH, PUT, or DELETE."}}
   end
 
   defp tool_error_payload(:invalid_arguments) do
-    %{
-      "error" => %{
-        "message" => "`linear_graphql` expects either a GraphQL query string or an object with `query` and optional `variables`."
-      }
-    }
+    %{"error" => %{"message" => "`github_api` expects an object with `method`, `path`, and optional `body`."}}
   end
 
-  defp tool_error_payload(:invalid_variables) do
-    %{
-      "error" => %{
-        "message" => "`linear_graphql.variables` must be a JSON object when provided."
-      }
-    }
+  defp tool_error_payload(:missing_github_api_token) do
+    %{"error" => %{"message" => "Symphony is missing GitHub auth. Set `tracker.api_key` in `WORKFLOW.md` or export `GITHUB_TOKEN`."}}
   end
 
-  defp tool_error_payload(:missing_linear_api_token) do
-    %{
-      "error" => %{
-        "message" => "Symphony is missing Linear auth. Set `linear.api_key` in `WORKFLOW.md` or export `LINEAR_API_KEY`."
-      }
-    }
-  end
-
-  defp tool_error_payload({:linear_api_status, status}) do
-    %{
-      "error" => %{
-        "message" => "Linear GraphQL request failed with HTTP #{status}.",
-        "status" => status
-      }
-    }
-  end
-
-  defp tool_error_payload({:linear_api_request, reason}) do
-    %{
-      "error" => %{
-        "message" => "Linear GraphQL request failed before receiving a successful response.",
-        "reason" => inspect(reason)
-      }
-    }
+  defp tool_error_payload({:github_api_request, reason}) do
+    %{"error" => %{"message" => "GitHub API request failed.", "reason" => inspect(reason)}}
   end
 
   defp tool_error_payload(reason) do
-    %{
-      "error" => %{
-        "message" => "Linear GraphQL tool execution failed.",
-        "reason" => inspect(reason)
-      }
-    }
+    %{"error" => %{"message" => "GitHub API tool execution failed.", "reason" => inspect(reason)}}
   end
 
   defp supported_tool_names do

@@ -8,7 +8,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
 
   require Logger
   alias ClaudeAgentSDK.{Options, Streaming}
-  alias SymphonyElixir.{ClaudeCode.McpLinear, Config}
+  alias SymphonyElixir.Config
 
   @type session :: %{
           session_pid: pid() | {:control_client, pid()},
@@ -40,7 +40,7 @@ defmodule SymphonyElixir.ClaudeCode.Client do
         max_turns: Config.claude_max_turns(),
         cwd: expanded,
         append_system_prompt: Config.claude_append_system_prompt(),
-        mcp_servers: McpLinear.mcp_server_config()
+        mcp_servers: nil
       }
 
       case Streaming.start_session(sdk_options) do

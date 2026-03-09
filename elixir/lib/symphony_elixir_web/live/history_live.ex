@@ -6,7 +6,7 @@ defmodule SymphonyElixirWeb.HistoryLive do
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
   alias SymphonyElixir.EventStore
-  alias SymphonyElixir.Linear.Adapter
+  alias SymphonyElixir.GitHub.Adapter
 
   @impl true
   def mount(params, _session, socket) do

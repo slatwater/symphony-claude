@@ -1,10 +1,10 @@
 defmodule SymphonyElixir.AgentRunner do
   @moduledoc """
-  Executes a single Linear issue in an isolated workspace with Codex.
+  Executes a single GitHub issue in an isolated workspace with the configured agent.
   """
 
   require Logger
-  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
+  alias SymphonyElixir.{Config, GitHub.Issue, PromptBuilder, Tracker, Workspace}
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
@@ -118,7 +118,7 @@ defmodule SymphonyElixir.AgentRunner do
     """
     Continuation guidance:
 
-    - The previous Codex turn completed normally, but the Linear issue is still in an active state.
+    - The previous Codex turn completed normally, but the GitHub issue is still in an active state.
     - This is continuation turn ##{turn_number} of #{max_turns} for the current agent run.
     - Resume from the current workspace and workpad state instead of restarting from scratch.
     - The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.
@@ -148,7 +148,7 @@ defmodule SymphonyElixir.AgentRunner do
   defp active_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)
 
-    Config.linear_active_states()
+    Config.github_active_states()
     |> Enum.any?(fn active_state -> normalize_issue_state(active_state) == normalized_state end)
   end
 

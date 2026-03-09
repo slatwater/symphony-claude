@@ -126,6 +126,7 @@ defmodule SymphonyElixir.EventStore do
 
     if events != [] do
       do_persist(issue_id, session_id, events)
+      :ets.delete(@table, issue_id)
     end
 
     {:noreply, state}

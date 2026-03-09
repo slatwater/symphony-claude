@@ -1,6 +1,6 @@
 defmodule SymphonyElixir.Orchestrator do
   @moduledoc """
-  Polls Linear and dispatches repository copies to Codex-backed workers.
+  Polls GitHub Issues and dispatches repository copies to agent workers.
   """
 
   use GenServer
@@ -8,7 +8,7 @@ defmodule SymphonyElixir.Orchestrator do
   import Bitwise, only: [<<<: 2]
 
   alias SymphonyElixir.{AgentRunner, Config, EventStore, StatusDashboard, Tracker, Workspace}
-  alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.GitHub.Issue
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -180,12 +180,12 @@ defmodule SymphonyElixir.Orchestrator do
          true <- available_slots(state) > 0 do
       choose_issues(issues, state)
     else
-      {:error, :missing_linear_api_token} ->
-        Logger.error("Linear API token missing in WORKFLOW.md")
+      {:error, :missing_github_api_token} ->
+        Logger.error("GitHub API token missing in WORKFLOW.md")
         state
 
-      {:error, :missing_linear_project_slug} ->
-        Logger.error("Linear project slug missing in WORKFLOW.md")
+      {:error, :missing_github_repo} ->
+        Logger.error("GitHub repo missing in WORKFLOW.md")
         state
 
       {:error, :missing_tracker_kind} ->
@@ -227,7 +227,7 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       {:error, reason} ->
-        Logger.error("Failed to fetch from Linear: #{inspect(reason)}")
+        Logger.error("Failed to fetch from GitHub: #{inspect(reason)}")
         state
 
       false ->
@@ -567,14 +567,14 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp terminal_state_set do
-    Config.linear_terminal_states()
+    Config.github_terminal_states()
     |> Enum.map(&normalize_issue_state/1)
     |> Enum.filter(&(&1 != ""))
     |> MapSet.new()
   end
 
   defp active_state_set do
-    Config.linear_active_states()
+    Config.github_active_states()
     |> Enum.map(&normalize_issue_state/1)
     |> Enum.filter(&(&1 != ""))
     |> MapSet.new()
@@ -757,6 +757,11 @@ defmodule SymphonyElixir.Orchestrator do
         cleanup_issue_workspace(issue.identifier)
         {:noreply, release_issue_claim(state, issue_id)}
 
+      metadata[:delay_type] == :continuation and issue.state != "todo" ->
+        Logger.info("Continuation skip: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state} is no longer todo; agent work complete")
+
+        {:noreply, release_issue_claim(state, issue_id)}
+
       retry_candidate_issue?(issue, terminal_states) ->
         handle_active_retry(state, issue, attempt, metadata)
 
@@ -779,7 +784,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp cleanup_issue_workspace(_identifier), do: :ok
 
   defp run_terminal_workspace_cleanup do
-    case Tracker.fetch_issues_by_states(Config.linear_terminal_states()) do
+    case Tracker.fetch_issues_by_states(Config.github_terminal_states()) do
       {:ok, issues} ->
         issues
         |> Enum.each(fn

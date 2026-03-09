@@ -376,7 +376,7 @@ defmodule SymphonyElixirWeb.AgentLogLive do
 
   # --- Event Classification ---
 
-  defp classify_event(event, seen) do
+  defp classify_event(event, _seen) do
     type = event_type(event)
     tool = to_string(field(event, :tool_name) || "")
     raw = to_string(field(event, :tool_input_summary) || field(event, :message) || "")
@@ -395,9 +395,6 @@ defmodule SymphonyElixirWeb.AgentLogLive do
       tool == "ToolSearch" ->
         :_setup
 
-      tool == "mcp__linear__linear_graphql" ->
-        classify_linear_event(summary, seen)
-
       type == :tool_use ->
         classify_tool_event(tool, summary)
 
@@ -406,28 +403,11 @@ defmodule SymphonyElixirWeb.AgentLogLive do
     end
   end
 
-  defp classify_linear_event(summary, seen) do
-    cond do
-      String.contains?(summary, "query") && !String.contains?(summary, "mutation") ->
-        :query_issue
-
-      String.contains?(summary, "issueupdate") ->
-        if MapSet.member?(seen, :start_processing), do: :complete_task, else: :start_processing
-
-      String.contains?(summary, "commentcreate") ||
-          String.contains?(summary, "commentupdate") ->
-        :review_check
-
-      String.contains?(summary, "attach") ->
-        :review_check
-
-      true ->
-        :query_issue
-    end
-  end
-
   defp classify_tool_event(tool, summary) do
     cond do
+      String.contains?(summary, "gh issue") || String.contains?(summary, "gh api") ->
+        :query_issue
+
       String.contains?(summary, "gh pr create") ->
         :create_pr
 

@@ -11,9 +11,9 @@
   - `yaml_elixir` — YAML 解析（WORKFLOW.md front-matter）
   - `solid` — Liquid 模板渲染（提示词模板）
   - `nimble_options` — 类型化配置校验
-  - `req` — HTTP 客户端（Linear GraphQL API）
+  - `req` — HTTP 客户端（GitHub REST API）
   - `claude_agent_sdk` — Claude Code Elixir SDK
-- **外部服务**: Linear（Issue Tracker）、Claude Code CLI
+- **外部服务**: GitHub Issues（Issue Tracker）、Claude Code CLI
 
 ## 六层模型
 
@@ -22,7 +22,7 @@ Policy        — WORKFLOW.md（提示词模板 + 配置）
 Configuration — Config（类型化 accessor + $ENV + 热重载）
 Coordination  — Orchestrator（轮询/调度/并发/重试/Token 统计）
 Execution     — AgentRunner + AppServer/ClaudeCode.Client + Workspace
-Integration   — Linear GraphQL Client
+Integration   — GitHub REST API Client
 Observability — HTTP Dashboard + Agent 事件流 + 历史回放 + REST API + 日志
 ```
 
@@ -52,10 +52,8 @@ symphony/
 │   │   ├── prompt_builder.ex  # Liquid 模板渲染
 │   │   ├── codex/             # Codex app-server 集成（原有）
 │   │   ├── claude_code/       # Claude Code 集成（v3+）
-│   │   │   ├── client.ex      # Streaming API 客户端
-│   │   │   ├── mcp_linear.ex  # Linear MCP 配置
-│   │   │   └── linear_tool.ex # SDK MCP 工具定义
-│   │   └── linear/            # Linear API 客户端
+│   │   │   └── client.ex      # Streaming API 客户端
+│   │   └── github/            # GitHub REST API 客户端
 │   │   └── event_store.ex    # ETS 事件存储 + JSON 持久化
 │   ├── lib/symphony_elixir_web/  # Phoenix Web 层
 │   │   └── live/
@@ -64,7 +62,7 @@ symphony/
 │   │       └── history_live.ex    # 历史会话浏览 + 回放（/history）
 │   └── test/                     # ExUnit 测试
 │
-└── .codex/                # Codex skills（commit/push/pull/land/linear）
+└── .codex/                # Codex skills（commit/push/pull/land）
 ```
 
 ## Token 追踪架构

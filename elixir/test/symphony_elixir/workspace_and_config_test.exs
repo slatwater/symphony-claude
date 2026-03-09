@@ -1,6 +1,6 @@
 defmodule SymphonyElixir.WorkspaceAndConfigTest do
   use SymphonyElixir.TestSupport
-  alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.GitHub.Client
 
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =
@@ -257,7 +257,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert :ok = Workspace.remove_issue_workspaces(nil)
   end
 
-  test "linear issue helpers" do
+  test "github issue helpers" do
     issue = %Issue{
       id: "abc",
       labels: ["frontend", "infra"],
@@ -269,120 +269,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     refute issue.assigned_to_worker
   end
 
-  test "linear client normalizes blockers from inverse relations" do
-    raw_issue = %{
-      "id" => "issue-1",
-      "identifier" => "MT-1",
-      "title" => "Blocked todo",
-      "description" => "Needs dependency",
-      "priority" => 2,
-      "state" => %{"name" => "Todo"},
-      "branchName" => "mt-1",
-      "url" => "https://example.org/issues/MT-1",
-      "assignee" => %{
-        "id" => "user-1"
-      },
-      "labels" => %{"nodes" => [%{"name" => "Backend"}]},
-      "inverseRelations" => %{
-        "nodes" => [
-          %{
-            "type" => "blocks",
-            "issue" => %{
-              "id" => "issue-2",
-              "identifier" => "MT-2",
-              "state" => %{"name" => "In Progress"}
-            }
-          },
-          %{
-            "type" => "relatesTo",
-            "issue" => %{
-              "id" => "issue-3",
-              "identifier" => "MT-3",
-              "state" => %{"name" => "Done"}
-            }
-          }
-        ]
-      },
-      "createdAt" => "2026-01-01T00:00:00Z",
-      "updatedAt" => "2026-01-02T00:00:00Z"
-    }
-
-    issue = Client.normalize_issue_for_test(raw_issue, "user-1")
-
-    assert issue.blocked_by == [%{id: "issue-2", identifier: "MT-2", state: "In Progress"}]
-    assert issue.labels == ["backend"]
-    assert issue.priority == 2
-    assert issue.state == "Todo"
-    assert issue.assignee_id == "user-1"
-    assert issue.assigned_to_worker
-  end
-
-  test "linear client marks explicitly unassigned issues as not routed to worker" do
-    raw_issue = %{
-      "id" => "issue-99",
-      "identifier" => "MT-99",
-      "title" => "Someone else's task",
-      "state" => %{"name" => "Todo"},
-      "assignee" => %{
-        "id" => "user-2"
-      }
-    }
-
-    issue = Client.normalize_issue_for_test(raw_issue, "user-1")
-
-    refute issue.assigned_to_worker
-  end
-
-  test "linear client pagination merge helper preserves issue ordering" do
-    issue_page_1 = [
-      %Issue{id: "issue-1", identifier: "MT-1"},
-      %Issue{id: "issue-2", identifier: "MT-2"}
-    ]
-
-    issue_page_2 = [
-      %Issue{id: "issue-3", identifier: "MT-3"}
-    ]
-
-    merged = Client.merge_issue_pages_for_test([issue_page_1, issue_page_2])
-
-    assert Enum.map(merged, & &1.identifier) == ["MT-1", "MT-2", "MT-3"]
-  end
-
-  test "linear client logs response bodies for non-200 graphql responses" do
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert {:error, {:linear_api_status, 400}} =
-                 Client.graphql(
-                   "query Viewer { viewer { id } }",
-                   %{},
-                   request_fun: fn _payload, _headers ->
-                     {:ok,
-                      %{
-                        status: 400,
-                        body: %{
-                          "errors" => [
-                            %{
-                              "message" => "Variable \"$ids\" got invalid value",
-                              "extensions" => %{"code" => "BAD_USER_INPUT"}
-                            }
-                          ]
-                        }
-                      }}
-                   end
-                 )
-      end)
-
-    assert log =~ "Linear GraphQL request failed status=400"
-    assert log =~ ~s(body=%{"errors" => [%{"extensions" => %{"code" => "BAD_USER_INPUT"})
-    assert log =~ "Variable \\\"$ids\\\" got invalid value"
-  end
-
   test "orchestrator sorts dispatch by priority then oldest created_at" do
     issue_same_priority_older = %Issue{
       id: "issue-old-high",
       identifier: "MT-200",
       title: "Old high priority",
-      state: "Todo",
+      state: "todo",
       priority: 1,
       created_at: ~U[2026-01-01 00:00:00Z]
     }
@@ -391,7 +283,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "issue-new-high",
       identifier: "MT-201",
       title: "New high priority",
-      state: "Todo",
+      state: "todo",
       priority: 1,
       created_at: ~U[2026-01-02 00:00:00Z]
     }
@@ -400,7 +292,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "issue-old-low",
       identifier: "MT-199",
       title: "Old lower priority",
-      state: "Todo",
+      state: "todo",
       priority: 2,
       created_at: ~U[2025-12-01 00:00:00Z]
     }
@@ -428,8 +320,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "blocked-1",
       identifier: "MT-1001",
       title: "Blocked work",
-      state: "Todo",
-      blocked_by: [%{id: "blocker-1", identifier: "MT-1002", state: "In Progress"}]
+      state: "todo",
+      blocked_by: [%{id: "blocker-1", identifier: "MT-1002", state: "in-progress"}]
     }
 
     refute Orchestrator.should_dispatch_issue_for_test(issue, state)
@@ -450,7 +342,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "assigned-away-1",
       identifier: "MT-1007",
       title: "Owned elsewhere",
-      state: "Todo",
+      state: "todo",
       assigned_to_worker: false
     }
 
@@ -470,8 +362,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "ready-1",
       identifier: "MT-1003",
       title: "Ready work",
-      state: "Todo",
-      blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "Closed"}]
+      state: "todo",
+      blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "done"}]
     }
 
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
@@ -482,7 +374,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "blocked-2",
       identifier: "MT-1005",
       title: "Stale blocked work",
-      state: "Todo",
+      state: "todo",
       blocked_by: []
     }
 
@@ -490,8 +382,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "blocked-2",
       identifier: "MT-1005",
       title: "Stale blocked work",
-      state: "Todo",
-      blocked_by: [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
+      state: "todo",
+      blocked_by: [%{id: "blocker-3", identifier: "MT-1006", state: "in-progress"}]
     }
 
     fetcher = fn ["blocked-2"] -> {:ok, [refreshed_issue]} end
@@ -500,7 +392,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
 
     assert skipped_issue.identifier == "MT-1005"
-    assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
+    assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "in-progress"}]
   end
 
   test "workspace remove returns error information for missing directory" do
@@ -638,9 +530,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "config reads defaults for optional settings" do
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
-    System.delete_env("LINEAR_API_KEY")
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    on_exit(fn -> restore_env("GITHUB_TOKEN", previous_github_token) end)
+    System.delete_env("GITHUB_TOKEN")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: nil,
@@ -652,12 +544,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       codex_read_timeout_ms: nil,
       codex_stall_timeout_ms: nil,
       tracker_api_token: nil,
-      tracker_project_slug: nil
+      tracker_repo: nil
     )
 
-    assert Config.linear_endpoint() == "https://api.linear.app/graphql"
-    assert Config.linear_api_token() == nil
-    assert Config.linear_project_slug() == nil
+    assert Config.github_endpoint() == "https://api.github.com"
+    assert Config.github_api_token() == nil
+    assert Config.github_repo() == nil
     assert Config.workspace_root() == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert Config.max_concurrent_agents() == 10
     assert Config.codex_command() == "codex app-server"
@@ -703,7 +595,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
            }
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ",")
-    assert Config.linear_active_states() == ["Todo", "In Progress"]
+    assert Config.github_active_states() == ["todo", "in-progress"]
 
     write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: "bad")
     assert Config.max_concurrent_agents() == 10
@@ -732,8 +624,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       server_host: 123
     )
 
-    assert Config.linear_active_states() == ["Todo", "In Progress"]
-    assert Config.linear_terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
+    assert Config.github_active_states() == ["todo", "in-progress"]
+    assert Config.github_terminal_states() == ["done", "cancelled"]
     assert Config.poll_interval_ms() == 30_000
     assert Config.workspace_root() == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert Config.max_retry_backoff_ms() == 300_000
@@ -801,7 +693,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
   test "config resolves $VAR references for env-backed secret and path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
-    api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
+    api_key_env_var = "SYMP_GITHUB_TOKEN_#{System.unique_integer([:positive])}"
     workspace_root = Path.join("/tmp", "symphony-workspace-root")
     api_key = "resolved-secret"
     codex_bin = Path.join(["~", "bin", "codex"])
@@ -823,14 +715,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       codex_command: "#{codex_bin} app-server"
     )
 
-    assert Config.linear_api_token() == api_key
+    assert Config.github_api_token() == api_key
     assert Config.workspace_root() == Path.expand(workspace_root)
     assert Config.codex_command() == "#{codex_bin} app-server"
   end
 
   test "config no longer resolves legacy env: references" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
-    api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
+    api_key_env_var = "SYMP_GITHUB_TOKEN_#{System.unique_integer([:positive])}"
     workspace_root = Path.join("/tmp", "symphony-workspace-root")
     api_key = "resolved-secret"
 
@@ -850,7 +742,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       workspace_root: "env:#{workspace_env_var}"
     )
 
-    assert Config.linear_api_token() == "env:#{api_key_env_var}"
+    assert Config.github_api_token() == "env:#{api_key_env_var}"
     assert Config.workspace_root() == "env:#{workspace_env_var}"
   end
 

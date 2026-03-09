@@ -6,11 +6,11 @@ defmodule SymphonyElixir.Config do
   alias NimbleOptions
   alias SymphonyElixir.Workflow
 
-  @default_active_states ["Todo", "In Progress"]
-  @default_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
-  @default_linear_endpoint "https://api.linear.app/graphql"
+  @default_active_states ["todo", "in-progress"]
+  @default_terminal_states ["done", "cancelled"]
+  @default_github_endpoint "https://api.github.com"
   @default_prompt_template """
-  You are working on a Linear issue.
+  You are working on a GitHub issue.
 
   Identifier: {{ issue.identifier }}
   Title: {{ issue.title }}
@@ -57,9 +57,9 @@ defmodule SymphonyElixir.Config do
                                default: %{},
                                keys: [
                                  kind: [type: {:or, [:string, nil]}, default: nil],
-                                 endpoint: [type: :string, default: @default_linear_endpoint],
+                                 endpoint: [type: :string, default: @default_github_endpoint],
                                  api_key: [type: {:or, [:string, nil]}, default: nil],
-                                 project_slug: [type: {:or, [:string, nil]}, default: nil],
+                                 repo: [type: {:or, [:string, nil]}, default: nil],
                                  assignee: [type: {:or, [:string, nil]}, default: nil],
                                  active_states: [
                                    type: {:list, :string},
@@ -226,39 +226,39 @@ defmodule SymphonyElixir.Config do
     get_in(validated_workflow_options(), [:tracker, :kind])
   end
 
-  @spec linear_endpoint() :: String.t()
-  def linear_endpoint do
+  @spec github_endpoint() :: String.t()
+  def github_endpoint do
     get_in(validated_workflow_options(), [:tracker, :endpoint])
   end
 
-  @spec linear_api_token() :: String.t() | nil
-  def linear_api_token do
+  @spec github_api_token() :: String.t() | nil
+  def github_api_token do
     validated_workflow_options()
     |> get_in([:tracker, :api_key])
-    |> resolve_env_value(System.get_env("LINEAR_API_KEY"))
+    |> resolve_env_value(System.get_env("GITHUB_TOKEN"))
     |> normalize_secret_value()
   end
 
-  @spec linear_project_slug() :: String.t() | nil
-  def linear_project_slug do
-    get_in(validated_workflow_options(), [:tracker, :project_slug])
+  @spec github_repo() :: String.t() | nil
+  def github_repo do
+    get_in(validated_workflow_options(), [:tracker, :repo])
   end
 
-  @spec linear_assignee() :: String.t() | nil
-  def linear_assignee do
+  @spec github_assignee() :: String.t() | nil
+  def github_assignee do
     validated_workflow_options()
     |> get_in([:tracker, :assignee])
-    |> resolve_env_value(System.get_env("LINEAR_ASSIGNEE"))
+    |> resolve_env_value(System.get_env("GITHUB_ASSIGNEE"))
     |> normalize_secret_value()
   end
 
-  @spec linear_active_states() :: [String.t()]
-  def linear_active_states do
+  @spec github_active_states() :: [String.t()]
+  def github_active_states do
     get_in(validated_workflow_options(), [:tracker, :active_states])
   end
 
-  @spec linear_terminal_states() :: [String.t()]
-  def linear_terminal_states do
+  @spec github_terminal_states() :: [String.t()]
+  def github_terminal_states do
     get_in(validated_workflow_options(), [:tracker, :terminal_states])
   end
 
@@ -459,8 +459,8 @@ defmodule SymphonyElixir.Config do
   def validate! do
     with {:ok, _workflow} <- current_workflow(),
          :ok <- require_tracker_kind(),
-         :ok <- require_linear_token(),
-         :ok <- require_linear_project() do
+         :ok <- require_github_token(),
+         :ok <- require_github_repo() do
       validate_agent_backend()
     end
   end
@@ -481,20 +481,20 @@ defmodule SymphonyElixir.Config do
 
   defp require_tracker_kind do
     case tracker_kind() do
-      "linear" -> :ok
+      "github" -> :ok
       "memory" -> :ok
       nil -> {:error, :missing_tracker_kind}
       other -> {:error, {:unsupported_tracker_kind, other}}
     end
   end
 
-  defp require_linear_token do
+  defp require_github_token do
     case tracker_kind() do
-      "linear" ->
-        if is_binary(linear_api_token()) do
+      "github" ->
+        if is_binary(github_api_token()) do
           :ok
         else
-          {:error, :missing_linear_api_token}
+          {:error, :missing_github_api_token}
         end
 
       _ ->
@@ -502,13 +502,13 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp require_linear_project do
+  defp require_github_repo do
     case tracker_kind() do
-      "linear" ->
-        if is_binary(linear_project_slug()) do
+      "github" ->
+        if is_binary(github_repo()) do
           :ok
         else
-          {:error, :missing_linear_project_slug}
+          {:error, :missing_github_repo}
         end
 
       _ ->
@@ -579,7 +579,7 @@ defmodule SymphonyElixir.Config do
     |> put_if_present(:kind, normalize_tracker_kind(scalar_string_value(Map.get(section, "kind"))))
     |> put_if_present(:endpoint, scalar_string_value(Map.get(section, "endpoint")))
     |> put_if_present(:api_key, binary_value(Map.get(section, "api_key"), allow_empty: true))
-    |> put_if_present(:project_slug, scalar_string_value(Map.get(section, "project_slug")))
+    |> put_if_present(:repo, scalar_string_value(Map.get(section, "repo")))
     |> put_if_present(:active_states, csv_value(Map.get(section, "active_states")))
     |> put_if_present(:terminal_states, csv_value(Map.get(section, "terminal_states")))
   end

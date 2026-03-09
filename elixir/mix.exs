@@ -14,7 +14,7 @@ defmodule SymphonyElixir.MixProject do
         ],
         ignore_modules: [
           SymphonyElixir.Config,
-          SymphonyElixir.Linear.Client,
+          SymphonyElixir.GitHub.Client,
           SymphonyElixir.SpecsCheck,
           SymphonyElixir.Orchestrator,
           SymphonyElixir.Orchestrator.State,
@@ -23,8 +23,6 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.Codex.AppServer,
           SymphonyElixir.Codex.DynamicTool,
           SymphonyElixir.ClaudeCode.Client,
-          SymphonyElixir.ClaudeCode.McpLinear,
-          SymphonyElixir.ClaudeCode.LinearTool.LinearGraphql,
           SymphonyElixir.HttpServer,
           SymphonyElixir.StatusDashboard,
           SymphonyElixir.LogFile,

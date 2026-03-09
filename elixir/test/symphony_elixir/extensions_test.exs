@@ -4,12 +4,12 @@ defmodule SymphonyElixir.ExtensionsTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias SymphonyElixir.Linear.Adapter
+  alias SymphonyElixir.GitHub.Adapter
   alias SymphonyElixir.Tracker.Memory
 
   @endpoint SymphonyElixirWeb.Endpoint
 
-  defmodule FakeLinearClient do
+  defmodule FakeGitHubClient do
     def fetch_candidate_issues do
       send(self(), :fetch_candidate_issues_called)
       {:ok, [:candidate]}
@@ -25,16 +25,21 @@ defmodule SymphonyElixir.ExtensionsTest do
       {:ok, issue_ids}
     end
 
-    def graphql(query, variables) do
-      send(self(), {:graphql_called, query, variables})
+    def create_comment(issue_number, body) do
+      send(self(), {:create_comment_called, issue_number, body})
 
-      case Process.get({__MODULE__, :graphql_results}) do
-        [result | rest] ->
-          Process.put({__MODULE__, :graphql_results}, rest)
-          result
+      case Process.get({__MODULE__, :create_comment_result}) do
+        nil -> :ok
+        result -> result
+      end
+    end
 
-        _ ->
-          Process.get({__MODULE__, :graphql_result})
+    def update_issue_state(issue_number, state_name) do
+      send(self(), {:update_issue_state_called, issue_number, state_name})
+
+      case Process.get({__MODULE__, :update_issue_state_result}) do
+        nil -> :ok
+        result -> result
       end
     end
   end
@@ -78,13 +83,13 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   setup do
-    linear_client_module = Application.get_env(:symphony_elixir, :linear_client_module)
+    github_client_module = Application.get_env(:symphony_elixir, :github_client_module)
 
     on_exit(fn ->
-      if is_nil(linear_client_module) do
-        Application.delete_env(:symphony_elixir, :linear_client_module)
+      if is_nil(github_client_module) do
+        Application.delete_env(:symphony_elixir, :github_client_module)
       else
-        Application.put_env(:symphony_elixir, :linear_client_module, linear_client_module)
+        Application.put_env(:symphony_elixir, :github_client_module, github_client_module)
       end
     end)
 
@@ -181,7 +186,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     WorkflowStore.force_reload()
   end
 
-  test "tracker delegates to memory and linear adapters" do
+  test "tracker delegates to memory and github adapters" do
     issue = %Issue{id: "issue-1", identifier: "MT-1", state: "In Progress"}
     Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue, %{id: "ignored"}])
     Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
@@ -201,12 +206,12 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert :ok = Memory.create_comment("issue-1", "quiet")
     assert :ok = Memory.update_issue_state("issue-1", "Quiet")
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github")
     assert SymphonyElixir.Tracker.adapter() == Adapter
   end
 
-  test "linear adapter delegates reads and validates mutation responses" do
-    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+  test "github adapter delegates reads and mutations to client module" do
+    Application.put_env(:symphony_elixir, :github_client_module, FakeGitHubClient)
 
     assert {:ok, [:candidate]} = Adapter.fetch_candidate_issues()
     assert_receive :fetch_candidate_issues_called
@@ -217,106 +222,32 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, ["issue-1"]} = Adapter.fetch_issue_states_by_ids(["issue-1"])
     assert_receive {:fetch_issue_states_by_ids_called, ["issue-1"]}
 
-    Process.put(
-      {FakeLinearClient, :graphql_result},
-      {:ok, %{"data" => %{"commentCreate" => %{"success" => true}}}}
-    )
+    # create_comment succeeds by default
+    assert :ok = Adapter.create_comment("42", "hello")
+    assert_receive {:create_comment_called, "42", "hello"}
 
-    assert :ok = Adapter.create_comment("issue-1", "hello")
-    assert_receive {:graphql_called, create_comment_query, %{body: "hello", issueId: "issue-1"}}
-    assert create_comment_query =~ "commentCreate"
+    # create_comment returns error when configured
+    Process.put({FakeGitHubClient, :create_comment_result}, {:error, {:github_api_status, 422}})
+    assert {:error, {:github_api_status, 422}} = Adapter.create_comment("42", "broken")
+    assert_receive {:create_comment_called, "42", "broken"}
 
-    Process.put(
-      {FakeLinearClient, :graphql_result},
-      {:ok, %{"data" => %{"commentCreate" => %{"success" => false}}}}
-    )
+    Process.put({FakeGitHubClient, :create_comment_result}, {:error, {:github_api_request, :boom}})
+    assert {:error, {:github_api_request, :boom}} = Adapter.create_comment("42", "boom")
+    assert_receive {:create_comment_called, "42", "boom"}
 
-    assert {:error, :comment_create_failed} =
-             Adapter.create_comment("issue-1", "broken")
+    # update_issue_state succeeds by default
+    Process.put({FakeGitHubClient, :create_comment_result}, nil)
+    assert :ok = Adapter.update_issue_state("42", "Done")
+    assert_receive {:update_issue_state_called, "42", "Done"}
 
-    Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
+    # update_issue_state returns error when configured
+    Process.put({FakeGitHubClient, :update_issue_state_result}, {:error, {:github_api_status, 404}})
+    assert {:error, {:github_api_status, 404}} = Adapter.update_issue_state("42", "Broken")
+    assert_receive {:update_issue_state_called, "42", "Broken"}
 
-    assert {:error, :boom} = Adapter.create_comment("issue-1", "boom")
-
-    Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"data" => %{}}})
-    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "weird")
-
-    Process.put({FakeLinearClient, :graphql_result}, :unexpected)
-    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "odd")
-
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
-      ]
-    )
-
-    assert :ok = Adapter.update_issue_state("issue-1", "Done")
-    assert_receive {:graphql_called, state_lookup_query, %{issueId: "issue-1", stateName: "Done"}}
-    assert state_lookup_query =~ "states"
-
-    assert_receive {:graphql_called, update_issue_query, %{issueId: "issue-1", stateId: "state-1"}}
-
-    assert update_issue_query =~ "issueUpdate"
-
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        {:ok, %{"data" => %{"issueUpdate" => %{"success" => false}}}}
-      ]
-    )
-
-    assert {:error, :issue_update_failed} =
-             Adapter.update_issue_state("issue-1", "Broken")
-
-    Process.put({FakeLinearClient, :graphql_results}, [{:error, :boom}])
-
-    assert {:error, :boom} = Adapter.update_issue_state("issue-1", "Boom")
-
-    Process.put({FakeLinearClient, :graphql_results}, [{:ok, %{"data" => %{}}}])
-    assert {:error, :state_not_found} = Adapter.update_issue_state("issue-1", "Missing")
-
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        {:ok, %{"data" => %{}}}
-      ]
-    )
-
-    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Weird")
-
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        :unexpected
-      ]
-    )
-
-    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Odd")
+    Process.put({FakeGitHubClient, :update_issue_state_result}, {:error, {:github_api_request, :timeout}})
+    assert {:error, {:github_api_request, :timeout}} = Adapter.update_issue_state("42", "Boom")
+    assert_receive {:update_issue_state_called, "42", "Boom"}
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do

@@ -4,7 +4,7 @@ defmodule SymphonyElixir.CoreTest do
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      tracker_project_slug: nil,
+      tracker_repo: nil,
       poll_interval_ms: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
@@ -12,9 +12,9 @@ defmodule SymphonyElixir.CoreTest do
     )
 
     assert Config.poll_interval_ms() == 30_000
-    assert Config.linear_active_states() == ["Todo", "In Progress"]
-    assert Config.linear_terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
-    assert Config.linear_assignee() == nil
+    assert Config.github_active_states() == ["todo", "in-progress"]
+    assert Config.github_terminal_states() == ["done", "cancelled"]
+    assert Config.github_assignee() == nil
     assert Config.agent_max_turns() == 20
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
@@ -29,18 +29,18 @@ defmodule SymphonyElixir.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 5)
     assert Config.agent_max_turns() == 5
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
-    assert Config.linear_active_states() == ["Todo", "Review"]
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "todo,  review,")
+    assert Config.github_active_states() == ["todo", "review"]
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: "token",
-      tracker_project_slug: nil
+      tracker_repo: nil
     )
 
-    assert {:error, :missing_linear_project_slug} = Config.validate!()
+    assert {:error, :missing_github_repo} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_project_slug: "project",
+      tracker_repo: "project",
       codex_command: ""
     )
 
@@ -81,8 +81,8 @@ defmodule SymphonyElixir.CoreTest do
 
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
-    assert Map.get(tracker, "kind") == "linear"
-    assert is_binary(Map.get(tracker, "project_slug"))
+    assert Map.get(tracker, "kind") == "github"
+    assert is_binary(Map.get(tracker, "repo"))
     assert is_list(Map.get(tracker, "active_states"))
     assert is_list(Map.get(tracker, "terminal_states"))
 
@@ -95,38 +95,38 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.workflow_prompt() == prompt
   end
 
-  test "linear api token resolves from LINEAR_API_KEY env var" do
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-    env_api_key = "test-linear-api-key"
+  test "github api token resolves from GITHUB_TOKEN env var" do
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    env_api_key = "test-github-api-token"
 
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
-    System.put_env("LINEAR_API_KEY", env_api_key)
+    on_exit(fn -> restore_env("GITHUB_TOKEN", previous_github_token) end)
+    System.put_env("GITHUB_TOKEN", env_api_key)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      tracker_project_slug: "project",
+      tracker_repo: "project",
       codex_command: "/bin/sh app-server"
     )
 
-    assert Config.linear_api_token() == env_api_key
-    assert Config.linear_project_slug() == "project"
+    assert Config.github_api_token() == env_api_key
+    assert Config.github_repo() == "project"
     assert :ok = Config.validate!()
   end
 
-  test "linear assignee resolves from LINEAR_ASSIGNEE env var" do
-    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
+  test "github assignee resolves from GITHUB_ASSIGNEE env var" do
+    previous_github_assignee = System.get_env("GITHUB_ASSIGNEE")
     env_assignee = "dev@example.com"
 
-    on_exit(fn -> restore_env("LINEAR_ASSIGNEE", previous_linear_assignee) end)
-    System.put_env("LINEAR_ASSIGNEE", env_assignee)
+    on_exit(fn -> restore_env("GITHUB_ASSIGNEE", previous_github_assignee) end)
+    System.put_env("GITHUB_ASSIGNEE", env_assignee)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_assignee: nil,
-      tracker_project_slug: "project",
+      tracker_repo: "project",
       codex_command: "/bin/sh app-server"
     )
 
-    assert Config.linear_assignee() == env_assignee
+    assert Config.github_assignee() == env_assignee
   end
 
   test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
@@ -163,9 +163,9 @@ defmodule SymphonyElixir.CoreTest do
 
   test "workflow load accepts unterminated front matter with an empty prompt" do
     workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "UNTERMINATED_WORKFLOW.md")
-    File.write!(workflow_path, "---\ntracker:\n  kind: linear\n")
+    File.write!(workflow_path, "---\ntracker:\n  kind: github\n")
 
-    assert {:ok, %{config: %{"tracker" => %{"kind" => "linear"}}, prompt: "", prompt_template: ""}} =
+    assert {:ok, %{config: %{"tracker" => %{"kind" => "github"}}, prompt: "", prompt_template: ""}} =
              Workflow.load(workflow_path)
   end
 
@@ -200,7 +200,7 @@ defmodule SymphonyElixir.CoreTest do
     GenServer.stop(pid)
   end
 
-  test "linear issue state reconciliation fetch with no running issues is a no-op" do
+  test "github issue state reconciliation fetch with no running issues is a no-op" do
     assert {:ok, []} = Client.fetch_issue_states_by_ids([])
   end
 
@@ -218,8 +218,8 @@ defmodule SymphonyElixir.CoreTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: test_root,
-        tracker_active_states: ["Todo", "In Progress", "In Review"],
-        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
+        tracker_active_states: ["todo", "in-progress", "in-review"],
+        tracker_terminal_states: ["done", "cancelled"]
       )
 
       File.mkdir_p!(test_root)
@@ -238,7 +238,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "Todo", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "todo", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -250,7 +250,7 @@ defmodule SymphonyElixir.CoreTest do
       issue = %Issue{
         id: issue_id,
         identifier: issue_identifier,
-        state: "Backlog",
+        state: "backlog",
         title: "Queued",
         description: "Not started",
         labels: []
@@ -281,8 +281,8 @@ defmodule SymphonyElixir.CoreTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: test_root,
-        tracker_active_states: ["Todo", "In Progress", "In Review"],
-        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
+        tracker_active_states: ["todo", "in-progress", "in-review"],
+        tracker_terminal_states: ["done", "cancelled"]
       )
 
       File.mkdir_p!(test_root)
@@ -301,7 +301,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -313,7 +313,7 @@ defmodule SymphonyElixir.CoreTest do
       issue = %Issue{
         id: issue_id,
         identifier: issue_identifier,
-        state: "Closed",
+        state: "done",
         title: "Done",
         description: "Completed",
         labels: []
@@ -342,7 +342,7 @@ defmodule SymphonyElixir.CoreTest do
           issue: %Issue{
             id: issue_id,
             identifier: "MT-557",
-            state: "Todo"
+            state: "todo"
           },
           started_at: DateTime.utc_now()
         }
@@ -355,7 +355,7 @@ defmodule SymphonyElixir.CoreTest do
     issue = %Issue{
       id: issue_id,
       identifier: "MT-557",
-      state: "In Progress",
+      state: "in-progress",
       title: "Active state refresh",
       description: "State should be refreshed",
       labels: []
@@ -366,7 +366,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert Map.has_key?(updated_state.running, issue_id)
     assert MapSet.member?(updated_state.claimed, issue_id)
-    assert updated_entry.issue.state == "In Progress"
+    assert updated_entry.issue.state == "in-progress"
   end
 
   test "reconcile stops running issue when it is reassigned away from this worker" do
@@ -388,7 +388,7 @@ defmodule SymphonyElixir.CoreTest do
           issue: %Issue{
             id: issue_id,
             identifier: "MT-561",
-            state: "In Progress",
+            state: "in-progress",
             assigned_to_worker: true
           },
           started_at: DateTime.utc_now()
@@ -402,7 +402,7 @@ defmodule SymphonyElixir.CoreTest do
     issue = %Issue{
       id: issue_id,
       identifier: "MT-561",
-      state: "In Progress",
+      state: "in-progress",
       title: "Reassigned active issue",
       description: "Worker should stop",
       labels: [],
@@ -434,7 +434,7 @@ defmodule SymphonyElixir.CoreTest do
       pid: self(),
       ref: ref,
       identifier: "MT-558",
-      issue: %Issue{id: issue_id, identifier: "MT-558", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-558", state: "in-progress"},
       started_at: DateTime.utc_now()
     }
 
@@ -475,7 +475,7 @@ defmodule SymphonyElixir.CoreTest do
       ref: ref,
       identifier: "MT-559",
       retry_attempt: 2,
-      issue: %Issue{id: issue_id, identifier: "MT-559", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-559", state: "in-progress"},
       started_at: DateTime.utc_now()
     }
 
@@ -514,7 +514,7 @@ defmodule SymphonyElixir.CoreTest do
       pid: self(),
       ref: ref,
       identifier: "MT-560",
-      issue: %Issue{id: issue_id, identifier: "MT-560", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-560", state: "in-progress"},
       started_at: DateTime.utc_now()
     }
 
@@ -556,7 +556,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "S-1",
       title: "Refactor backend request path",
       description: "Replace transport layer",
-      state: "Todo",
+      state: "todo",
       url: "https://example.org/issues/S-1",
       labels: ["backend"]
     }
@@ -580,7 +580,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-697",
       title: "Live smoke",
       description: "Prompt should serialize datetimes",
-      state: "Todo",
+      state: "todo",
       url: "https://example.org/issues/MT-697",
       labels: [],
       created_at: created_at,
@@ -601,7 +601,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-701",
       title: "Serialize nested values",
       description: "Prompt builder should normalize nested terms",
-      state: "Todo",
+      state: "todo",
       url: "https://example.org/issues/MT-701",
       labels: [
         ~N[2026-02-27 12:34:56],
@@ -624,7 +624,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-123",
       title: "Investigate broken sync",
       description: "Reproduce and fix",
-      state: "In Progress",
+      state: "in-progress",
       url: "https://example.org/issues/MT-123",
       labels: ["bug"]
     }
@@ -641,7 +641,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-999",
       title: "Broken prompt",
       description: "Invalid template syntax",
-      state: "Todo",
+      state: "todo",
       url: "https://example.org/issues/MT-999",
       labels: []
     }
@@ -658,14 +658,14 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-777",
       title: "Make fallback prompt useful",
       description: "Include enough issue context to start working.",
-      state: "In Progress",
+      state: "in-progress",
       url: "https://example.org/issues/MT-777",
       labels: ["prompt"]
     }
 
     prompt = PromptBuilder.build_prompt(issue)
 
-    assert prompt =~ "You are working on a Linear issue."
+    assert prompt =~ "You are working on a GitHub issue."
     assert prompt =~ "Identifier: MT-777"
     assert prompt =~ "Title: Make fallback prompt useful"
     assert prompt =~ "Body:"
@@ -682,7 +682,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-778",
       title: "Handle empty body",
       description: nil,
-      state: "Todo",
+      state: "todo",
       url: "https://example.org/issues/MT-778",
       labels: []
     }
@@ -714,7 +714,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-780",
       title: "Workflow unavailable",
       description: "Missing workflow file",
-      state: "Todo",
+      state: "todo",
       url: "https://example.org/issues/MT-780",
       labels: []
     }
@@ -732,7 +732,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-616",
       title: "Use rich templates for WORKFLOW.md",
       description: "Render with rich template variables",
-      state: "In Progress",
+      state: "in-progress",
       url: "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd",
       labels: ["templating", "workflow"]
     }
@@ -741,11 +741,11 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
-    assert prompt =~ "You are working on a Linear ticket `MT-616`"
+    assert prompt =~ "You are working on a GitHub issue `MT-616`"
     assert prompt =~ "Issue context:"
     assert prompt =~ "Identifier: MT-616"
     assert prompt =~ "Title: Use rich templates for WORKFLOW.md"
-    assert prompt =~ "Current status: In Progress"
+    assert prompt =~ "Current status: in-progress"
     assert prompt =~ "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd"
     assert prompt =~ "This is an unattended orchestration session."
     assert prompt =~ "Only stop early for a true blocker"
@@ -764,7 +764,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-201",
       title: "Continue autonomous ticket",
       description: "Retry flow",
-      state: "In Progress",
+      state: "in-progress",
       url: "https://example.org/issues/MT-201",
       labels: []
     }
@@ -832,7 +832,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "S-99",
         title: "Smoke test",
         description: "Run and keep workspace",
-        state: "In Progress",
+        state: "in-progress",
         url: "https://example.org/issues/S-99",
         labels: ["backend"]
       }
@@ -918,7 +918,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-99",
         title: "Smoke test",
         description: "Capture codex updates",
-        state: "In Progress",
+        state: "in-progress",
         url: "https://example.org/issues/MT-99",
         labels: ["backend"]
       }
@@ -929,7 +929,7 @@ defmodule SymphonyElixir.CoreTest do
                AgentRunner.run(
                  issue,
                  test_pid,
-                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "done"}]} end
                )
 
       assert_receive {:codex_worker_update, "issue-live-updates",
@@ -1019,9 +1019,9 @@ defmodule SymphonyElixir.CoreTest do
 
         state =
           if attempt == 1 do
-            "In Progress"
+            "in-progress"
           else
-            "Done"
+            "done"
           end
 
         {:ok,
@@ -1041,7 +1041,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-247",
         title: "Continue until done",
         description: "Still active after first turn",
-        state: "In Progress",
+        state: "in-progress",
         url: "https://example.org/issues/MT-247",
         labels: []
       }
@@ -1148,7 +1148,7 @@ defmodule SymphonyElixir.CoreTest do
              identifier: "MT-248",
              title: "Stop at max turns",
              description: "Still active",
-             state: "In Progress"
+             state: "in-progress"
            }
          ]}
       end
@@ -1158,7 +1158,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-248",
         title: "Stop at max turns",
         description: "Still active",
-        state: "In Progress",
+        state: "in-progress",
         url: "https://example.org/issues/MT-248",
         labels: []
       }
@@ -1242,7 +1242,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-77",
         title: "Validate codex args",
         description: "Check startup args and cwd",
-        state: "In Progress",
+        state: "in-progress",
         url: "https://example.org/issues/MT-77",
         labels: ["backend"]
       }
@@ -1385,7 +1385,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-88",
         title: "Validate custom codex args",
         description: "Check startup args override",
-        state: "In Progress",
+        state: "in-progress",
         url: "https://example.org/issues/MT-88",
         labels: ["backend"]
       }
@@ -1477,7 +1477,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-99",
         title: "Validate codex policy overrides",
         description: "Check startup policy payload overrides",
-        state: "In Progress",
+        state: "in-progress",
         url: "https://example.org/issues/MT-99",
         labels: ["backend"]
       }
